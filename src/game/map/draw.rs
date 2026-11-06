@@ -44,7 +44,6 @@ pub fn draw_map(buf: &mut [u8], pitch: usize, map_data: &MapData, state: &MapSta
             for bx in 0..64 {
                 let block = &map_data.layout[by * 64 + bx];
                 if block.block_index != 0 {
-                    // Крыши рендерим со сдвигом по Y на -32, чтобы они легли поверх домов
                     draw_block(buf, pitch, map_data, block, bx, by - 32, scroll_x, scroll_y, x_offset, layer);
                 }
             }
@@ -61,7 +60,6 @@ fn draw_block(buf: &mut [u8], pitch: usize, map_data: &MapData, block: &MapLayou
         let word = map_data.blockset[off + ti];
         let is_high_priority = (word & 0x8000) != 0;
 
-        // Разделяем слои по биту приоритета тайла
         if layer == 0 && is_high_priority { continue; }
         if layer == 1 && !is_high_priority { continue; }
 
@@ -71,7 +69,7 @@ fn draw_block(buf: &mut [u8], pitch: usize, map_data: &MapData, block: &MapLayou
         let tile_idx = (word & 0x07FF) as i32;
         let base = tile_idx - 256;
 
-        let (tset, local) = if base >= 0 && base < 5 * 128 {
+        let (tset, local) = if base >= 0 && base < 6 * 128 {
             let set_val = (base / 128) as usize;
             let ti_local = (base % 128) as usize;
             (&map_data.tilesets[set_val], ti_local)
@@ -98,7 +96,6 @@ fn draw_block(buf: &mut [u8], pitch: usize, map_data: &MapData, block: &MapLayou
                     let byte = tile[bi];
                     let ci = if spx % 2 == 0 { (byte >> 4) & 0x0F } else { byte & 0x0F } as usize;
                     
-                    // Пропускаем ТОЛЬКО 0-й (прозрачный) цвет. 15-й (белый) рисуем!
                     if ci == 0 { continue; }
 
                     let fi = pal * 16 + ci;

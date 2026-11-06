@@ -257,6 +257,11 @@ pub fn run() {
 
                     // Advance player animation/movement and update the camera.
                     player_state.tick(&mut map_data, &mut events_state);
+
+                    for anim in &mut map_data.animations {
+                        anim.update(&mut map_data.tilesets);
+                    }
+
                     map_state.player_x = (player_state.pixel_x / 16) + 12;
                     map_state.player_y = (player_state.pixel_y / 16) + 12;
                     map_state.update_target(&map_data);

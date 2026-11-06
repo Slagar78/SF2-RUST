@@ -1,4 +1,4 @@
-C:\my_project\SF2_SNES_DISAM\
+C:\my_project\SF2-RUST\
 │
 ├── Cargo.toml                      <-- Crate manifest: package metadata and dependencies
 │
@@ -18,14 +18,15 @@ C:\my_project\SF2_SNES_DISAM\
 │   │   ├── state.rs                <-- GameState enum (SegaLogo, Map, Menu, MemberMenu, MemberStatus)
 │   │   ├── player.rs               <-- Bowie movement (grid, collisions, ladders, warps)
 │   │   ├── ally_parser.rs          <-- Parser for .asm data (names, classes, stats)
-│   │   ├── transition.rs           <-- NEW: screen fade logic for warps (fade out/in)
+│   │   ├── transition.rs           <-- Screen fade logic for warps (fade out/in)
 │   │   │
 │   │   ├── map.rs                  <-- Map module root: connects map submodules
 │   │   ├── map\
-│   │   │   ├── loader.rs           <-- Map loading (blocks, layout, zone/warp parsing)
+│   │   │   ├── loader.rs           <-- Map loading (blocks, layout, tilesets, zones, warps)
+│   │   │   ├── anim.rs             <-- NEW: Universal 32-tile animation (water, torches, etc.)
 │   │   │   ├── camera.rs           <-- Camera with dead zones (H32, scrolling)
-│   │   │   ├── draw.rs             <-- Renders two map layers (strict H32 clipping)
-│   │   │   └── events.rs           <-- Event handling (warps, doors, roofs)
+│   │   │   ├── draw.rs             <-- Renders two map layers (H32 clipping, anim tile replacement)
+│   │   │   └── events.rs           <-- Event handling (warps, doors, roofs, items)
 │   │   │
 │   │   ├── menu.rs                 <-- Menu module root: connects menu submodules
 │   │   ├── menu\

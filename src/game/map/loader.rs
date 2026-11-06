@@ -2,6 +2,7 @@
 use sdl3::pixels::Color;
 use std::collections::HashMap;
 use crate::engine::decompressor;
+use crate::game::map::anim::MapAnimation;
 
 const LAYOUT_SIZE: usize = 0x1000;
 const CRAM_VALUE_MAP: [u8; 8] = [0, 52, 87, 116, 144, 172, 206, 255];
@@ -63,7 +64,8 @@ pub struct MapData {
     pub step_events: Vec<StepEvent>,
     pub items: Vec<MapItem>,
     pub roof_events: Vec<RoofEvent>,
-    pub areas: Vec<MapArea>, // <-- НОВОЕ ПОЛЕ
+    pub areas: Vec<MapArea>,
+    pub animations: Vec<MapAnimation>,
 }
 
 pub fn load_map_data() -> MapData {
@@ -76,7 +78,7 @@ pub fn load_map_data() -> MapData {
     let layout: Vec<MapLayoutBlock> = layout_words.iter().map(|&w| MapLayoutBlock { block_index: w & 0x3ff, flags: w & 0xfc00 }).collect();
 
     let mut tilesets = Vec::new();
-    for id in [0u32, 37, 43, 53, 66] {
+    for id in [0u32, 37, 43, 53, 66, 74] { // <-- Добавили 74-й
         let path = format!("src/data/graphics/maps/maptilesets/maptileset{:03}.bin", id);
         let comp = std::fs::read(&path).unwrap_or_else(|_| panic!("Нет {}", path));
         tilesets.push(decompressor::decompress(&comp).unwrap());
@@ -141,7 +143,15 @@ pub fn load_map_data() -> MapData {
         MapArea { start_x: 51, start_y: 10, end_x: 61, end_y: 19 },
     ];
 
-    MapData { layout, blockset, tilesets, palette, warps, step_events, items, roof_events, areas }
+    let animations = vec![
+        MapAnimation {
+            timer: 20,
+            is_frame2: false,
+        }
+    ];
+
+    MapData { layout, blockset, tilesets, palette, warps, step_events, items, roof_events, areas, animations }
+
 }
 
 struct BitStream<'a> {
