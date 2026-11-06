@@ -1,0 +1,170 @@
+
+; ASM FILE data\stats\allies\classes\classdefs.asm :
+; 0x1EE890..0x1EE930 : Class definitions
+table_ClassDefinitions:
+                
+; Syntax        mov        0-255 (game slows down at around 15)
+;               resistance [RESISTANCE_]bitfield
+;               movetype   [MOVETYPE_UPPER_]enum (or index)
+;               prowess    [PROWESS_]bitfield
+                
+                mov 6                   ; 0: SDMN
+                resistance NONE
+                movetype   REGULAR
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN32
+                
+                mov 7                   ; 1: KNTE
+                resistance NONE
+                movetype   CENTAUR
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN32
+                
+                mov 5                   ; 2: WARR
+                resistance NONE
+                movetype   REGULAR
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN32
+                
+                mov 5                   ; 3: MAGE
+                resistance NONE
+                movetype   MAGE
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN32
+                
+                mov 5                   ; 4: PRST
+                resistance NONE
+                movetype   HEALER
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN32
+                
+                mov 5                   ; 5: ACHR
+                resistance NONE
+                movetype   ARCHER
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN32
+                
+                mov 6                   ; 6: BDMN
+                resistance NONE
+                movetype   FLYING
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN32
+                
+                mov 5                   ; 7: WFMN
+                resistance NONE
+                movetype   STEALTH
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN32
+                
+                mov 6                   ; 8: RNGR
+                resistance NONE
+                movetype   CENTAUR_ARCHER
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN32
+                
+                mov 6                   ; 9: PHNK
+                resistance NONE
+                movetype   HOVERING
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN32
+                
+                mov 7                   ; 10: THIF
+                resistance NONE
+                movetype   REGULAR
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN16|COUNTER_1IN32
+                
+                mov 5                   ; 11: TORT
+                resistance NONE
+                movetype   STEALTH
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN32
+                
+                mov 6                   ; 12: HERO
+                resistance NONE
+                movetype   REGULAR
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN16|COUNTER_1IN8
+                
+                mov 7                   ; 13: PLDN
+                resistance NONE
+                movetype   CENTAUR
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN16
+                
+                mov 7                   ; 14: PGNT
+                resistance NONE
+                movetype   FLYING
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN16
+                
+                mov 5                   ; 15: GLDT
+                resistance NONE
+                movetype   REGULAR
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN16
+                
+                mov 6                   ; 16: BRN
+                resistance NONE
+                movetype   REGULAR
+                prowess    CRITICAL150_1IN8|DOUBLE_1IN32|COUNTER_1IN16
+                
+                mov 5                   ; 17: WIZ
+                resistance NONE
+                movetype   MAGE
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN16
+                
+                mov 5                   ; 18: SORC
+                resistance NONE
+                movetype   MAGE
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN16
+                
+                mov 5                   ; 19: VICR
+                resistance NONE
+                movetype   HEALER
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN16
+                
+                mov 5                   ; 20: MMNK
+                resistance NONE
+                movetype   REGULAR
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN8
+                
+                mov 6                   ; 21: SNIP
+                resistance NONE
+                movetype   ARCHER
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN16
+                
+                mov 5                   ; 22: BRGN
+                resistance NONE
+                movetype   BRASS_GUNNER
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN16
+                
+                mov 6                   ; 23: BDBT
+                resistance NONE
+                movetype   FLYING
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN16
+                
+                mov 5                   ; 24: WFBR
+                resistance NONE
+                movetype   STEALTH
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN8
+                
+                mov 6                   ; 25: BWNT
+                resistance NONE
+                movetype   CENTAUR_ARCHER
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN16
+                
+                mov 7                   ; 26: PHNX
+                resistance FIRE_MAJOR|STATUS_MAJOR
+                movetype   FLYING
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN16
+                
+                mov 7                   ; 27: NINJ
+                resistance NONE
+                movetype   STEALTH
+                prowess    CRITICAL150_1IN8|DOUBLE_1IN16|COUNTER_1IN8
+                
+                mov 7                   ; 28: MNST
+                resistance WIND_MAJOR|LIGHTNING_MAJOR|ICE_MAJOR|FIRE_MAJOR
+                movetype   HOVERING
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN16
+                
+                mov 4                   ; 29: RBT
+                resistance WIND_MINOR|FIRE_MINOR
+                movetype   REGULAR
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN16
+                
+                mov 4                   ; 30: GLM
+                resistance WIND_MINOR|LIGHTNING_MINOR|ICE_MINOR|FIRE_MINOR|STATUS_MAJOR
+                movetype   REGULAR
+                prowess    CRITICAL125_1IN16|DOUBLE_1IN32|COUNTER_1IN16
+                
+                mov 6                   ; 31: RDBN
+                resistance NONE
+                movetype   REGULAR
+                prowess    CRITICAL150_1IN8|DOUBLE_1IN32|COUNTER_1IN8
+                

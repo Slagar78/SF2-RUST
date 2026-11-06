@@ -1,0 +1,11 @@
+[package]
+name = "sf2_rust"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "sf2"
+path = "src/sf2.rs"
+
+[dependencies]
+sdl3 = "0.22"

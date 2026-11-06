@@ -1,0 +1,131 @@
+// src/game/map/events.rs
+use crate::game::map::loader::{MapData, MapLayoutBlock, RoofEvent};
+use crate::game::player::{PlayerState, Facing};
+use std::collections::HashMap;
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum MapEventResult {
+    None,
+    Warp(u8, u8, u8, u8),
+}
+
+pub struct MapEventsState {
+    pub active_roofs: HashMap<(u8, u8, u8, u8, u8, u8), Vec<MapLayoutBlock>>,
+}
+
+impl MapEventsState {
+    pub fn new() -> Self {
+        Self { active_roofs: HashMap::new() }
+    }
+}
+
+pub fn check_tile_events(_player: &mut PlayerState, map: &mut MapData, events: &mut MapEventsState, nx: i32, ny: i32) -> MapEventResult {
+    for warp in &map.warps {
+        if (warp.src_x == 255 || warp.src_x == nx as u8) && (warp.src_y == 255 || warp.src_y == ny as u8) {
+            return MapEventResult::Warp(warp.dest_map, warp.dest_x, warp.dest_y, warp.facing);
+        }
+    }
+
+    for ev in &map.step_events {
+        if ev.trig_x == nx as u8 && ev.trig_y == ny as u8 {
+            for y in 0..ev.height as usize {
+                for x in 0..ev.width as usize {
+                    let src_idx = (ev.src_y as usize + y) * 64 + (ev.src_x as usize + x);
+                    let dst_idx = (ev.dest_y as usize + y) * 64 + (ev.dest_x as usize + x);
+                    if src_idx < map.layout.len() && dst_idx < map.layout.len() {
+                        map.layout[dst_idx] = map.layout[src_idx];
+                    }
+                }
+            }
+        }
+    }
+
+    let mut unique_roofs: HashMap<(u8, u8, u8, u8, u8, u8), Vec<&RoofEvent>> = HashMap::new();
+    for ev in &map.roof_events {
+        let key = (ev.dest_x, ev.dest_y, ev.src_x, ev.src_y, ev.width, ev.height);
+        unique_roofs.entry(key).or_default().push(ev);
+    }
+
+    for (key, evs) in unique_roofs {
+        let ev = evs[0];
+        
+        // ТРИГГЕР ОТКРЫТИЯ (например, 4,8)
+        let open_x = ev.trig_x as i32;
+        let open_y = ev.trig_y as i32;
+        
+        // ТРИГГЕР ЗАКРЫТИЯ (всегда на 1 тайл ниже)
+        let close_x = open_x;
+        let close_y = open_y + 1;
+
+        if nx == open_x && ny == open_y {
+            // НАСТУПИЛИ НА ОТКРЫТИЕ: Стираем крышу
+            if !events.active_roofs.contains_key(&key) {
+                let mut saved = Vec::new();
+                for y in 0..ev.height as usize {
+                    for x in 0..ev.width as usize {
+                        let dst_idx = (ev.dest_y as usize + y) * 64 + (ev.dest_x as usize + x);
+                        if dst_idx < map.layout.len() {
+                            saved.push(map.layout[dst_idx]);
+                            if ev.src_x == 255 || ev.src_y == 255 {
+                                map.layout[dst_idx] = MapLayoutBlock { block_index: 0, flags: 0 };
+                            } else {
+                                let src_idx = (ev.src_y as usize + y) * 64 + (ev.src_x as usize + x);
+                                if src_idx < map.layout.len() {
+                                    map.layout[dst_idx] = map.layout[src_idx];
+                                }
+                            }
+                        }
+                    }
+                }
+                events.active_roofs.insert(key, saved);
+            }
+        } else if nx == close_x && ny == close_y {
+            // НАСТУПИЛИ НА ЗАКРЫТИЕ (вышли на улицу): Возвращаем крышу
+            if events.active_roofs.contains_key(&key) {
+                let saved = events.active_roofs.remove(&key).unwrap();
+                let mut idx = 0;
+                for y in 0..ev.height as usize {
+                    for x in 0..ev.width as usize {
+                        let dst_idx = (ev.dest_y as usize + y) * 64 + (ev.dest_x as usize + x);
+                        if dst_idx < map.layout.len() && idx < saved.len() {
+                            map.layout[dst_idx] = saved[idx];
+                        }
+                        idx += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    MapEventResult::None
+}
+
+pub fn interact(player: &mut PlayerState, map: &mut MapData) {
+    let (dx, dy) = match player.facing {
+        Facing::Up    => (0, -1),
+        Facing::Down  => (0,  1),
+        Facing::Left  => (-1, 0),
+        Facing::Right => ( 1, 0),
+    };
+    let target_x = player.tile_x + dx;
+    let target_y = player.tile_y + dy;
+
+    if target_x < 0 || target_x >= 64 || target_y < 0 || target_y >= 64 { return; }
+    let target_idx = (target_y * 64 + target_x) as usize;
+
+    let mut found_item = None;
+    for (i, item) in map.items.iter().enumerate() {
+        if item.x as i32 == target_x && item.y as i32 == target_y {
+            found_item = Some(i);
+            break;
+        }
+    }
+
+    if let Some(index) = found_item {
+        let item = map.items.remove(index);
+        println!("🎁 ВЫ НАШЛИ ПРЕДМЕТ! ID: {}", item.item_id);
+        map.layout[target_idx].flags = 0x0000; 
+    } else {
+        println!("Тут ничего нет.");
+    }
+}

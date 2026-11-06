@@ -1,0 +1,19 @@
+
+; ASM FILE data\maps\entries\map26\6-warp-events.asm :
+; 0xA8CD2..0xA8CEC : 
+                mWarp 59, 3
+                  warpNoScroll
+                  warpMap    MAP_WILLARD_BURROW
+                  warpDest   2, 7
+                  warpFacing UP
+                mWarp 32, 11
+                  warpNoScroll
+                  warpMap    MAP_CURRENT
+                  warpDest   12, 41
+                  warpFacing UP
+                mWarp 12, 42
+                  warpNoScroll
+                  warpMap    MAP_CURRENT
+                  warpDest   32, 12
+                  warpFacing UP
+                endWord

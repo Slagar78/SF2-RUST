@@ -1,0 +1,239 @@
+// ============================================================================
+// ПОРТ: DisplaySegaLogo (0x2804C..0x28FBC)
+// ============================================================================
+// В оригинале здесь идет настройка VDP, загрузка тайлов и палитры.
+// В Rust этим занимается модуль title/mod, а этот файл управляет состояниями.
+
+// Состояния (из ASM: moveq #20,d0 -> Sleep; move.w #40,d0 -> @Continue)
+// 0 = Выезд логотипа (sub_28B12)
+// 1 = Пауза после выезда (Sleep 20)
+// 2 = Показ финального кадра
+// 3 = Мерцание палитры (SegaLogoColors)
+// 4 = Конец
+
+use sdl3::pixels::Color;
+use sdl3::event::Event;
+use sdl3::keyboard::Keycode;
+use std::time::{Duration, Instant};
+use crate::engine::segalogo;
+use crate::engine::segalogo_data::LOGO_ANIMATION;
+
+const CRAM_VALUE_MAP: [u8; 8] = [0, 52, 87, 116, 144, 172, 206, 255];
+
+// Порт CRAMColor.java
+fn decode_genesis_color(first: u8, second: u8) -> Color {
+    let word = ((first as u16) << 8) | (second as u16);
+    let r3 = ((word >> 1) & 0x07) as usize;
+    let g3 = ((word >> 5) & 0x07) as usize;
+    let b3 = ((word >> 9) & 0x07) as usize;
+    Color::RGB(CRAM_VALUE_MAP[r3], CRAM_VALUE_MAP[g3], CRAM_VALUE_MAP[b3])
+}
+
+pub fn draw_genesis_tiles(tiles: &[u8], palette_raw: &[u8], colors_raw: &[u8]) {
+    let sdl_context = sdl3::init().unwrap();
+    let video_subsystem = sdl_context.video().unwrap();
+
+    let window = video_subsystem.window("SF2 PC Port - SEGA", 320, 224)
+        .position_centered()
+        .build()
+        .unwrap();
+
+    let mut canvas = window.into_canvas();
+    let texture_creator = canvas.texture_creator();
+    
+    let mut texture = texture_creator.create_texture_streaming(
+        sdl3::pixels::PixelFormat::RGBA32, 320, 224
+    ).unwrap();
+
+    // Порт: lea palette_SegaLogo(pc), a0
+    let mut base_palette = Vec::new();
+    for i in 0..(palette_raw.len() / 2) {
+        base_palette.push(decode_genesis_color(palette_raw[i*2], palette_raw[i*2+1]));
+    }
+
+    let mut event_pump = sdl_context.event_pump().unwrap();
+    let mut state = 0;
+    let mut frame_index = 0;
+    let mut frame_timer = Instant::now();
+    let mut pause_timer = Instant::now();
+    let mut shimmer_timer = Instant::now();
+    
+    let mut shimmer_offset: i32 = 40; // move.w #40,d0
+    let mut current_palette = base_palette.clone();
+
+    'running: loop {
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => break 'running,
+                _ => {}
+            }
+        }
+
+        // ====================================================================
+        // ЛОГИКА: sub_28B12 (Анимация выезда)
+        // ====================================================================
+        match state {
+            0 => {
+                // В ASM: bsr.w sub_28B12; jsr WaitForVInt
+                if frame_timer.elapsed() >= Duration::from_millis(16) {
+                    if frame_index + 1 < LOGO_ANIMATION.len() {
+                        frame_index += 1;
+                    } else {
+                        // Дошли до байта $FF в table_28BB8
+                        state = 1;
+                        pause_timer = Instant::now();
+                    }
+                    frame_timer = Instant::now();
+                }
+            }
+            1 => {
+                // В ASM: moveq #20,d0; jsr (Sleep).w
+                if pause_timer.elapsed() >= Duration::from_millis(333) {
+                    state = 2;
+                    pause_timer = Instant::now();
+                }
+            }
+            2 => {
+                // В ASM: move.l #$D80405,(SPRITE_TRADEMARK).l (Ожидание)
+                if pause_timer.elapsed() >= Duration::from_millis(1000) {
+                    state = 3;
+                    shimmer_timer = Instant::now();
+                }
+            }
+            3 => {
+                // В ASM: move.w #40,d0; @Continue: lea SegaLogoColors+4(pc,d0.w),a0
+                // moveq #$A,d0; bsr.w LoadSegaLogoPalette
+                if shimmer_timer.elapsed() >= Duration::from_millis(50) {
+                    let start_idx = 4 + (shimmer_offset as usize);
+                    for i in 0..11 {
+                        let pos = start_idx + i * 2;
+                        if pos + 1 < colors_raw.len() {
+                            current_palette[i + 1] = decode_genesis_color(colors_raw[pos], colors_raw[pos + 1]);
+                        }
+                    }
+                    shimmer_offset -= 2; // subq.w #2,d0
+                    if shimmer_offset < 0 {
+                        state = 4; 
+                    }
+                    shimmer_timer = Instant::now();
+                }
+            }
+            _ => {}
+        }
+
+        // В ASM: получаем координаты из таблицы
+        let sprites = if state >= 2 {
+            segalogo::get_logo_frame(LOGO_ANIMATION.len())
+        } else {
+            segalogo::get_logo_frame(frame_index)
+        };
+
+        texture.with_lock(None, |buffer: &mut [u8], pitch: usize| {
+            for y in 0..224 {
+                for x in 0..320 {
+                    let offset = y * pitch + x * 4;
+                    buffer[offset] = 0; buffer[offset + 1] = 0; buffer[offset + 2] = 0; buffer[offset + 3] = 255;
+                }
+            }
+
+            // Отрисовка 4 спрайтов (32x32)
+            for spr in sprites {
+                for tx in 0..4 {
+                    for ty in 0..4 {
+                        // ВАЖНО: В VDP тайлы спрайта лежат по КОЛОНКАМ
+                        let tile_idx = spr.tile_index + (tx * 4) + ty;
+                        
+                        if tile_idx * 32 + 32 > tiles.len() { continue; }
+                        let tile = &tiles[tile_idx * 32..(tile_idx + 1) * 32];
+                        
+                        for row in 0..8 {
+                            for col in 0..8 {
+                                let byte_idx = row * 4 + (col / 2);
+                                let byte = tile[byte_idx];
+                                let color_idx = if col % 2 == 0 { (byte >> 4) & 0x0F } else { byte & 0x0F } as usize;
+                                
+                                // Прозрачность (00 00)
+                                if color_idx == 0 { continue; }
+                                
+                                let c = current_palette[color_idx];
+                                let px = spr.x + (tx as i32 * 8) + col as i32;
+                                let py = spr.y + (ty as i32 * 8) + row as i32;
+                                
+                                if px >= 0 && px < 320 && py >= 0 && py < 224 {
+                                    let offset = (py as usize) * pitch + (px as usize) * 4;
+                                    buffer[offset] = c.r; buffer[offset + 1] = c.g; buffer[offset + 2] = c.b; buffer[offset + 3] = 255;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }).unwrap();
+
+        canvas.set_draw_color(Color::BLACK);
+        canvas.clear();
+        canvas.copy(&texture, None, None).unwrap();
+        canvas.present();
+        
+        std::thread::sleep(Duration::from_millis(16));
+    }
+}
+
+
+
+use crate::engine::segalogo_data::{LOGO_ANIMATION, FINAL_FRAME};
+
+pub struct LogoSprite {
+    pub tile_index: usize,
+    pub x: i32,
+    pub y: i32,
+}
+
+pub fn get_logo_frame(frame_index: usize) -> Vec<LogoSprite> {
+    let data = if frame_index >= LOGO_ANIMATION.len() {
+        FINAL_FRAME
+    } else {
+        LOGO_ANIMATION[frame_index]
+    };
+
+    let mut sprites = Vec::new();
+    
+    for (x, y, tile) in data.iter() {
+        // В ASM: lsl.w #NIBBLE_SHIFT_COUNT,d0 (умножаем на 16)
+        let calc_tile = (*tile as usize) * 16;
+        
+        // В ASM: addi.w #$F0,d0 (X + 240)
+        // В Rust: (X + 240) - 129 (для центрирования на экране ПК)
+        let calc_x = (*x as i32) + 240 - 129; 
+        
+        // В ASM: neg.w d0; addi.w #$E0,d0 (224 - Y)
+        // В Rust: (224 - Y) - 124 (для центрирования)
+        let calc_y = 224 - (*y as i32) - 124;
+
+        sprites.push(LogoSprite {
+            tile_index: calc_tile,
+            x: calc_x,
+            y: calc_y,
+        });
+    }
+    
+    sprites
+}
+
+
+// Данные из table_28BB8 в segalogo_0.asm
+pub const LOGO_ANIMATION: &[[(u8, u8, u8); 4]] = &[
+    [(0xD0, 0x0D, 4), (0xD0, 0x00, 5), (0xD0, 0x00, 2), (0xD0, 0x00, 3)],
+    [(0xD0, 0x0D, 4), (0xD0, 0x00, 5), (0xD0, 0x00, 2), (0xD0, 0x00, 3)],
+    [(0xCC, 0x0C, 4), (0xD0, 0x00, 5), (0xD0, 0x00, 2), (0xD0, 0x00, 3)],
+    // ... (здесь остальные 60+ кадров) ...
+    [(0x00, 0x04, 8), (0x13, 0x04, 9), (0x2A, 0x04, 0xA), (0x3D, 0x04, 0xB)],
+];
+
+// Данные из table_28F31 в segalogo_0.asm (Финальный кадр)
+pub const FINAL_FRAME: [(u8, u8, u8); 4] = [
+    (0x00, 0x04, 0),
+    (0x15, 0x04, 1),
+    (0x2B, 0x04, 2),
+    (0x42, 0x04, 3),
+];

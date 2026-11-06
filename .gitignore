@@ -1,0 +1,20 @@
+# Rust build output
+/target
+
+# Backups from rustfmt / editors
+**/*.rs.bk
+
+# Legacy from an earlier SNES project — remove if unused
+*.sfc
+tools/cc65/
+
+# Python cache (for any scripts in tools/)
+__pycache__/
+
+
+# Preview images — add explicit !exceptions if some PNGs must be tracked
+*.png
+
+# Windows junk
+Thumbs.db
+desktop.ini
