@@ -47,19 +47,16 @@ pub fn check_tile_events(_player: &mut PlayerState, map: &mut MapData, events: &
     }
 
     for (key, evs) in unique_roofs {
-        let ev = evs[0];
+        // Проверяем, наступил ли игрок на ЛЮБОЙ триггер открытия из этой группы
+        let is_opening = evs.iter().any(|ev| nx == ev.trig_x as i32 && ny == ev.trig_y as i32);
         
-        // ТРИГГЕР ОТКРЫТИЯ (например, 4,8)
-        let open_x = ev.trig_x as i32;
-        let open_y = ev.trig_y as i32;
-        
-        // ТРИГГЕР ЗАКРЫТИЯ (всегда на 1 тайл ниже)
-        let close_x = open_x;
-        let close_y = open_y + 1;
+        // Проверяем, наступил ли игрок на ЛЮБОЙ триггер закрытия (на 1 тайл ниже)
+        let is_closing = evs.iter().any(|ev| nx == ev.trig_x as i32 && ny == ev.trig_y as i32 + 1);
 
-        if nx == open_x && ny == open_y {
+        if is_opening {
             // НАСТУПИЛИ НА ОТКРЫТИЕ: Стираем крышу
             if !events.active_roofs.contains_key(&key) {
+                let ev = evs[0]; // Берем любую запись, т.к. src/dest/width/height у них одинаковые
                 let mut saved = Vec::new();
                 for y in 0..ev.height as usize {
                     for x in 0..ev.width as usize {
@@ -79,10 +76,10 @@ pub fn check_tile_events(_player: &mut PlayerState, map: &mut MapData, events: &
                 }
                 events.active_roofs.insert(key, saved);
             }
-        } else if nx == close_x && ny == close_y {
+        } else if is_closing {
             // НАСТУПИЛИ НА ЗАКРЫТИЕ (вышли на улицу): Возвращаем крышу
-            if events.active_roofs.contains_key(&key) {
-                let saved = events.active_roofs.remove(&key).unwrap();
+            if let Some(saved) = events.active_roofs.remove(&key) {
+                let ev = evs[0]; // Берем любую запись для размеров
                 let mut idx = 0;
                 for y in 0..ev.height as usize {
                     for x in 0..ev.width as usize {
