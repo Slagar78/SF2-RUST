@@ -204,15 +204,13 @@ pub fn run() {
                         }
                     }
                     
-                    // Transition update: once the screen is fully black, apply the teleport.
-                    // 1.0 / 60.0 is the fixed timestep used by the transition logic.
                     if let Some((dest_map, tx, ty, facing)) = transition.update(1.0 / 60.0) {
-                        // 1) Сброс крыш через метод (убирает warning про reset).
-                        events_state.reset();
-
-                        // 2) Загружаем новую карту со СВЕЖИМИ areas из mapXX/2-areas.asm.
+                        // 1) СБРАСЫВАЕМ КРЫШИ ТОЛЬКО ЕСЛИ МЕНЯЕТСЯ КАРТА!
+                        // Если мы варпаемся внутри той же карты (dest_map == 255), 
+                        // память о крышах трогать НЕЛЬЗЯ, иначе они исчезнут навсегда.
                         if dest_map != 255 {
                             println!("Загрузка карты через варп: {}", dest_map);
+                            events_state.reset(); 
                             map_data = load_map_data(dest_map);
                         }
 
@@ -239,13 +237,12 @@ pub fn run() {
                         }
 
                         // 4) Камера: с учётом AREAS НОВОЙ КАРТЫ + снап без лерпа.
-                        //    new_for_warp принимает ТАЙЛЫ (не пиксели) и сам умножает на 24.
-                        //    Внутри находит area, в которую попадает (tx, ty),
-                        //    и сразу ставит scroll_x/scroll_y = target_scroll_x/target_scroll_y.
                         map_state = MapState::new_for_warp(tx as i32, ty as i32, &map_data);
 
-                        // 5) Прожечь step_events на тайле спавна:
-                        //    если варп кинул прямо на триггер — layout переключится сразу.
+                        // 5) Открываем/закрываем крышу с учетом сдвига слоев.
+                        events_state.update_roofs_on_warp(&mut map_data, tx as i32, ty as i32);
+
+                        // 6) Прожечь step_events (для дверей/лестниц, если они есть на точке спавна).
                         let _ = crate::game::map::events::check_tile_events(
                             &mut player_state,
                             &mut map_data,
