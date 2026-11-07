@@ -61,7 +61,7 @@ pub fn run() {
     }
 
     // Load the initial map and runtime map/event state.
-    let mut map_data = load_map_data();
+    let mut map_data = load_map_data(3);
     let mut events_state = MapEventsState::new();
     
     // Spawn the player at tile (56, 3).
