@@ -114,6 +114,21 @@ impl PlayerState {
 
         if !up && !down && !left && !right { return MoveResult::None; }
 
+        // === ПОВОРОТ НА МЕСТЕ ===
+        // Определяем приоритетное направление (как в Ruby: Right, Left, Down, Up)
+        let intended_dir = if right { Facing::Right }
+                           else if left { Facing::Left }
+                           else if down { Facing::Down }
+                           else { Facing::Up };
+
+        // Если нажали в другую сторону — поворачиваемся и стоим 1 кадр
+        if self.facing != intended_dir && !self.on_stairs {
+            self.facing = intended_dir;
+            self.anim_counter = 0; 
+            return MoveResult::None; 
+        }
+        // ======================================
+
         // Candidate steps in priority order. `add_cand` deduplicates, so the
         // first legal candidate wins when two inputs map to the same offset.
         let mut candidates: Vec<(i32, i32, Facing)> = Vec::new();

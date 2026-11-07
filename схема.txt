@@ -16,14 +16,15 @@ C:\my_project\SF2-RUST\
 │   ├── game.rs                     <-- Main game loop and game-state switching
 │   ├── game\
 │   │   ├── state.rs                <-- GameState enum (SegaLogo, Map, Menu, MemberMenu, MemberStatus)
-│   │   ├── player.rs               <-- Bowie movement (grid, collisions, ladders, warps)
+│   │   ├── player.rs               <-- Bowie movement (grid, collisions, turn-in-place, ladders, warps)
 │   │   ├── ally_parser.rs          <-- Parser for .asm data (names, classes, stats)
 │   │   ├── transition.rs           <-- Screen fade logic for warps (fade out/in)
 │   │   │
 │   │   ├── map.rs                  <-- Map module root: connects map submodules
 │   │   ├── map\
+│   │   │   ├── finder.rs           <-- NEW: Parser for entries.asm, map paths, and 2-areas.asm
 │   │   │   ├── loader.rs           <-- Map loading (blocks, layout, tilesets, zones, warps)
-│   │   │   ├── anim.rs             <-- NEW: Universal 32-tile animation (water, torches, etc.)
+│   │   │   ├── anim.rs             <-- Universal 32-tile animation (water, torches, etc.)
 │   │   │   ├── camera.rs           <-- Camera with dead zones (H32, scrolling)
 │   │   │   ├── draw.rs             <-- Renders two map layers (H32 clipping, anim tile replacement)
 │   │   │   └── events.rs           <-- Event handling (warps, doors, roofs, items)
