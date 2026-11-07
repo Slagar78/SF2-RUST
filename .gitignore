@@ -12,6 +12,9 @@ tools/cc65/
 __pycache__/
 
 
+*.exe
+*.dll
+
 # Preview images — add explicit !exceptions if some PNGs must be tracked
 *.png
 
