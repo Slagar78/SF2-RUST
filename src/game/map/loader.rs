@@ -68,9 +68,27 @@ pub struct MapData {
     pub animations: Vec<MapAnimation>,
 }
 
+pub fn load_map_names() -> HashMap<String, u8> {
+    let mut map_dict = HashMap::new();
+    if let Ok(content) = std::fs::read_to_string("src/data/maps/map_names.txt") {
+        for line in content.lines() {
+            let clean_line = line.split(';').next().unwrap().trim();
+            if clean_line.is_empty() { continue; }
+            let parts: Vec<&str> = clean_line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                if let Ok(id) = parts[0].parse::<u8>() {
+                    map_dict.insert(parts[1].to_string(), id);
+                }
+            }
+        }
+    }
+    map_dict
+}
+
 pub fn load_map_data(map_id: u8) -> MapData {
-    // 1. Ищем пути
-    let paths = crate::game::map::finder::find_map_paths(map_id);
+    // 1. Ищем пути (теперь передаем map_dict)
+    let map_dict = load_map_names(); // <--- ВЫЗЫВАЕМ ЗДЕСЬ
+    let paths = crate::game::map::finder::find_map_paths(map_id, &map_dict);
     println!("Загрузка карты {} ({})...", map_id, paths.map_name);
 
     // 2. Блоки и лейаут
@@ -103,23 +121,13 @@ pub fn load_map_data(map_id: u8) -> MapData {
         palette.push(decode_genesis_color(pal_data[i * 2], pal_data[i * 2 + 1]));
     }
 
-    // 5. ВАРПЫ (ПОКА ХАРДКОД)
-    let warps = vec![
-        Warp { src_x: 255, src_y: 1, dest_map: 19, dest_x: 26, dest_y: 30, facing: 0 },
-        Warp { src_x: 0, src_y: 255, dest_map: 66, dest_x: 29, dest_y: 32, facing: 1 },
-        Warp { src_x: 50, src_y: 23, dest_map: 44, dest_x: 1, dest_y: 25, facing: 3 },
-        Warp { src_x: 50, src_y: 24, dest_map: 44, dest_x: 1, dest_y: 25, facing: 3 },
-        Warp { src_x: 50, src_y: 25, dest_map: 44, dest_x: 1, dest_y: 25, facing: 3 },
-        Warp { src_x: 46, src_y: 7, dest_map: 3, dest_x: 59, dest_y: 12, facing: 2 },
-        Warp { src_x: 59, src_y: 12, dest_map: 3, dest_x: 46, dest_y: 7, facing: 1 },
-        Warp { src_x: 3, src_y: 3, dest_map: 3, dest_x: 54, dest_y: 3, facing: 3 },
-        Warp { src_x: 54, src_y: 3, dest_map: 3, dest_x: 3, dest_y: 3, facing: 3 },
-    ];
+    // 5. ВАРПЫ (ТЕПЕРЬ ДИНАМИЧЕСКИ!)
+    let warps = paths.warps;
 
-    // 6. ДВЕРИ (ДИНАМИЧЕСКИ)
+    // 6. ДВЕРИ
     let step_events = paths.step_events;
 
-    // 7. КРЫШИ (ТЕПЕРЬ ДИНАМИЧЕСКИ!)
+    // 7. КРЫШИ
     let roof_events = paths.roof_events;
 
     // 8. ПРЕДМЕТЫ (ПОКА ХАРДКОД)
@@ -128,15 +136,12 @@ pub fn load_map_data(map_id: u8) -> MapData {
         MapItem { x: 59, y: 17, flag: 128, item_id: 1 },
     ];
 
-    // 9. ЗОНЫ (ДИНАМИЧЕСКИ)
+    // 9. ЗОНЫ
     let areas = paths.areas;
 
     // 10. АНИМАЦИИ (ПОКА ХАРДКОД)
     let animations = vec![
-        MapAnimation {
-            timer: 20,
-            is_frame2: false,
-        }
+        MapAnimation { timer: 20, is_frame2: false }
     ];
 
     MapData { layout, blockset, tilesets, palette, warps, step_events, items, roof_events, areas, animations }

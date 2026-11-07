@@ -207,52 +207,43 @@ pub fn run() {
                     // Transition update: once the screen is fully black, apply the teleport.
                     // 1.0 / 60.0 is the fixed timestep used by the transition logic.
                     if let Some((dest_map, x, y, facing)) = transition.update(1.0 / 60.0) {
-                        // Only destination map 3 is handled by the current map-loading path.
-                        if dest_map == 3 {
-                            player_state.tile_x = x as i32;
-                            player_state.tile_y = y as i32;
-                            player_state.pixel_x = player_state.tile_x * TILE_SIZE_FIXED;
-                            player_state.pixel_y = player_state.tile_y * TILE_SIZE_FIXED;
-                            player_state.target_x = player_state.pixel_x;
-                            player_state.target_y = player_state.pixel_y;
-                            player_state.travel_x = 0;
-                            player_state.travel_y = 0;
-                            player_state.velocity_x = 0;
-                            player_state.velocity_y = 0;
-                            player_state.current_direction = None; 
-                            player_state.input_delayer = 10;
+                        // Очищаем крыши при любом переходе
+                        events_state.active_roofs.clear();
 
-                            match facing {
-                                0 => player_state.facing = Facing::Up,
-                                1 => player_state.facing = Facing::Down,
-                                2 => player_state.facing = Facing::Left,
-                                3 => player_state.facing = Facing::Right,
-                                _ => {}
-                            }
-
-                            // Center the camera on the player, clamped to map bounds.
-                            map_state.scroll_x = (player_state.pixel_x / 16 - 128).clamp(0, 64 * 24 - 256);
-                            map_state.scroll_y = (player_state.pixel_y / 16 - 112).clamp(0, 64 * 24 - 224);
-                            map_state.target_scroll_x = map_state.scroll_x;
-                            map_state.target_scroll_y = map_state.scroll_y;
-
-                        } else {
-                            // Destination map is not handled/loaded:
-                            // silently roll the player back one tile and delay input.
-                            let (dx, dy) = match player_state.facing {
-                                Facing::Up => (0, 1), Facing::Down => (0, -1),
-                                Facing::Left => (1, 0), Facing::Right => (-1, 0),
-                            };
-                            player_state.tile_x += dx;
-                            player_state.tile_y += dy;
-                            player_state.pixel_x = player_state.tile_x * TILE_SIZE_FIXED;
-                            player_state.pixel_y = player_state.tile_y * TILE_SIZE_FIXED;
-                            player_state.target_x = player_state.pixel_x;
-                            player_state.target_y = player_state.pixel_y;
-                            player_state.travel_x = 0;
-                            player_state.travel_y = 0;
-                            player_state.input_delayer = 20;
+                        // Загружаем новую карту, если это не MAP_CURRENT (255)
+                        if dest_map != 255 {
+                            println!("Загрузка карты через варп: {}", dest_map);
+                            map_data = load_map_data(dest_map);
                         }
+
+                        // Ставим игрока на новые координаты
+                        player_state.tile_x = x as i32;
+                        player_state.tile_y = y as i32;
+                        player_state.pixel_x = player_state.tile_x * TILE_SIZE_FIXED;
+                        player_state.pixel_y = player_state.tile_y * TILE_SIZE_FIXED;
+                        player_state.target_x = player_state.pixel_x;
+                        player_state.target_y = player_state.pixel_y;
+                        player_state.travel_x = 0;
+                        player_state.travel_y = 0;
+                        player_state.velocity_x = 0;
+                        player_state.velocity_y = 0;
+                        player_state.current_direction = None; 
+                        player_state.input_delayer = 10;
+
+                        // Поворачиваем игрока
+                        match facing {
+                            0 => player_state.facing = Facing::Up,
+                            1 => player_state.facing = Facing::Down,
+                            2 => player_state.facing = Facing::Left,
+                            3 => player_state.facing = Facing::Right,
+                            _ => {}
+                        }
+
+                        // Центрируем камеру
+                        map_state.scroll_x = (player_state.pixel_x / 16 - 128).clamp(0, 64 * 24 - 256);
+                        map_state.scroll_y = (player_state.pixel_y / 16 - 112).clamp(0, 64 * 24 - 224);
+                        map_state.target_scroll_x = map_state.scroll_x;
+                        map_state.target_scroll_y = map_state.scroll_y;
                     }
 
                     // Advance player animation/movement and update the camera.

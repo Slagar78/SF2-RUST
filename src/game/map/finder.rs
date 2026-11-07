@@ -1,6 +1,7 @@
 // src/game/map/finder.rs
 use std::fs;
-use crate::game::map::loader::{MapArea, StepEvent, RoofEvent}; // <--- Добавлен RoofEvent
+use std::collections::HashMap;
+use crate::game::map::loader::{MapArea, StepEvent, RoofEvent, Warp}; // <--- Добавлен Warp
 
 pub struct MapPaths {
     pub map_name: String,
@@ -17,10 +18,11 @@ pub struct MapPaths {
     pub palette_path: String,
     pub areas: Vec<MapArea>,
     pub step_events: Vec<StepEvent>,
-    pub roof_events: Vec<RoofEvent>, // <--- ДОБАВЛЕНО
+    pub roof_events: Vec<RoofEvent>,
+    pub warps: Vec<Warp>, // <--- ДОБАВЛЕНО
 }
 
-pub fn find_map_paths(map_id: u8) -> MapPaths {
+pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
     let base_dir = "src/data/maps/";
     let map_prefix = format!("map{:02}", map_id);
     let map_label = format!("Map{:02}", map_id);
@@ -57,7 +59,8 @@ pub fn find_map_paths(map_id: u8) -> MapPaths {
         palette_path: String::new(),
         areas: Vec::new(),
         step_events: Vec::new(),
-        roof_events: Vec::new(), // <--- ДОБАВЛЕНО
+        roof_events: Vec::new(),
+        warps: Vec::new(), // <--- ДОБАВЛЕНО
     };
 
     let mut in_map_block = false;
@@ -113,7 +116,7 @@ pub fn find_map_paths(map_id: u8) -> MapPaths {
         paths.tileset_paths.push(String::new());
     }
 
-    // 4. Читаем ЗОНЫ из 2-areas.asm
+    // 4. Читаем ЗОНЫ
     let areas_asm = format!("src/data/maps/entries/{}/2-areas.asm", map_prefix);
     if let Ok(content) = fs::read_to_string(&areas_asm) {
         let mut start = (0, 0);
@@ -131,12 +134,10 @@ pub fn find_map_paths(map_id: u8) -> MapPaths {
         }
     }
 
-    // 5. Читаем ДВЕРИ из 4-step-events.asm
+    // 5. Читаем ДВЕРИ
     let steps_asm = format!("src/data/maps/entries/{}/4-step-events.asm", map_prefix);
     if let Ok(content) = fs::read_to_string(&steps_asm) {
-        let mut trig = (0, 0);
-        let mut src = (0, 0);
-        let mut size = (0, 0);
+        let mut trig = (0, 0); let mut src = (0, 0); let mut size = (0, 0);
         for line in content.lines() {
             let clean = line.split(';').next().unwrap().trim();
             if clean.starts_with("sbc ") {
@@ -151,23 +152,16 @@ pub fn find_map_paths(map_id: u8) -> MapPaths {
             } else if clean.starts_with("sbcDest") {
                 let n: Vec<i32> = clean.replace("sbcDest", "").split(',').filter_map(|s| s.trim().parse().ok()).collect();
                 if n.len() >= 2 {
-                    paths.step_events.push(StepEvent { 
-                        trig_x: trig.0, trig_y: trig.1, 
-                        src_x: src.0, src_y: src.1, 
-                        width: size.0, height: size.1, 
-                        dest_x: n[0] as u8, dest_y: n[1] as u8 
-                    });
+                    paths.step_events.push(StepEvent { trig_x: trig.0, trig_y: trig.1, src_x: src.0, src_y: src.1, width: size.0, height: size.1, dest_x: n[0] as u8, dest_y: n[1] as u8 });
                 }
             }
         }
     }
 
-    // 6. Читаем КРЫШИ из 5-roof-events.asm
+    // 6. Читаем КРЫШИ
     let roofs_asm = format!("src/data/maps/entries/{}/5-roof-events.asm", map_prefix);
     if let Ok(content) = fs::read_to_string(&roofs_asm) {
-        let mut trig = (0, 0);
-        let mut src = (0, 0);
-        let mut size = (0, 0);
+        let mut trig = (0, 0); let mut src = (0, 0); let mut size = (0, 0);
         for line in content.lines() {
             let clean = line.split(';').next().unwrap().trim();
             if clean.starts_with("slbc ") {
@@ -182,15 +176,43 @@ pub fn find_map_paths(map_id: u8) -> MapPaths {
             } else if clean.starts_with("slbcDest") {
                 let n: Vec<i32> = clean.replace("slbcDest", "").split(',').filter_map(|s| s.trim().parse().ok()).collect();
                 if n.len() >= 2 {
-                    paths.roof_events.push(RoofEvent { 
-                        trig_x: trig.0, trig_y: trig.1, 
-                        src_x: src.0, src_y: src.1, 
-                        width: size.0, height: size.1, 
-                        dest_x: n[0] as u8, dest_y: n[1] as u8 
-                    });
+                    paths.roof_events.push(RoofEvent { trig_x: trig.0, trig_y: trig.1, src_x: src.0, src_y: src.1, width: size.0, height: size.1, dest_x: n[0] as u8, dest_y: n[1] as u8 });
                 }
             }
         }
+    }
+
+    // 7. Читаем ВАРПЫ из 6-warp-events.asm
+    let warps_asm = format!("src/data/maps/entries/{}/6-warp-events.asm", map_prefix);
+    if let Ok(content) = fs::read_to_string(&warps_asm) {
+        let mut current_warp: Option<Warp> = None;
+        for line in content.lines() {
+            let clean = line.split(';').next().unwrap().trim();
+            if clean.starts_with("mWarp") {
+                if let Some(w) = current_warp.take() { paths.warps.push(w); }
+                let n: Vec<i32> = clean.replace("mWarp", "").split(',').filter_map(|s| s.trim().parse().ok()).collect();
+                if n.len() >= 2 {
+                    current_warp = Some(Warp { src_x: n[0] as u8, src_y: n[1] as u8, dest_map: 0, dest_x: 0, dest_y: 0, facing: 0 });
+                }
+            } else if clean.starts_with("warpMap") {
+                if let Some(ref mut w) = current_warp {
+                    let name = clean.replace("warpMap", "").trim().to_string();
+                    if name == "MAP_CURRENT" { w.dest_map = 255; }
+                    else if let Some(&id) = map_dict.get(&name) { w.dest_map = id; }
+                }
+            } else if clean.starts_with("warpDest") {
+                if let Some(ref mut w) = current_warp {
+                    let n: Vec<i32> = clean.replace("warpDest", "").split(',').filter_map(|s| s.trim().parse().ok()).collect();
+                    if n.len() >= 2 { w.dest_x = n[0] as u8; w.dest_y = n[1] as u8; }
+                }
+            } else if clean.starts_with("warpFacing") {
+                if let Some(ref mut w) = current_warp {
+                    let f = clean.replace("warpFacing", "").trim().to_string();
+                    w.facing = match f.as_str() { "UP" => 0, "DOWN" => 1, "LEFT" => 2, "RIGHT" => 3, _ => 0 };
+                }
+            }
+        }
+        if let Some(w) = current_warp { paths.warps.push(w); }
     }
 
     paths
