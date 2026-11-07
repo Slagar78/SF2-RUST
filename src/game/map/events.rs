@@ -13,9 +13,15 @@ pub struct MapEventsState {
     pub active_roofs: HashMap<(u8, u8, u8, u8, u8, u8), Vec<MapLayoutBlock>>,
 }
 
+// events.rs
 impl MapEventsState {
     pub fn new() -> Self {
         Self { active_roofs: HashMap::new() }
+    }
+
+    /// Полный сброс при смене карты.
+    pub fn reset(&mut self) {
+        self.active_roofs.clear();
     }
 }
 

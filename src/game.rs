@@ -206,19 +206,19 @@ pub fn run() {
                     
                     // Transition update: once the screen is fully black, apply the teleport.
                     // 1.0 / 60.0 is the fixed timestep used by the transition logic.
-                    if let Some((dest_map, x, y, facing)) = transition.update(1.0 / 60.0) {
-                        // Очищаем крыши при любом переходе
-                        events_state.active_roofs.clear();
+                    if let Some((dest_map, tx, ty, facing)) = transition.update(1.0 / 60.0) {
+                        // 1) Сброс крыш через метод (убирает warning про reset).
+                        events_state.reset();
 
-                        // Загружаем новую карту, если это не MAP_CURRENT (255)
+                        // 2) Загружаем новую карту со СВЕЖИМИ areas из mapXX/2-areas.asm.
                         if dest_map != 255 {
                             println!("Загрузка карты через варп: {}", dest_map);
                             map_data = load_map_data(dest_map);
                         }
 
-                        // Ставим игрока на новые координаты
-                        player_state.tile_x = x as i32;
-                        player_state.tile_y = y as i32;
+                        // 3) Игрок в тайловых координатах варпа.
+                        player_state.tile_x = tx as i32;
+                        player_state.tile_y = ty as i32;
                         player_state.pixel_x = player_state.tile_x * TILE_SIZE_FIXED;
                         player_state.pixel_y = player_state.tile_y * TILE_SIZE_FIXED;
                         player_state.target_x = player_state.pixel_x;
@@ -227,10 +227,9 @@ pub fn run() {
                         player_state.travel_y = 0;
                         player_state.velocity_x = 0;
                         player_state.velocity_y = 0;
-                        player_state.current_direction = None; 
+                        player_state.current_direction = None;
                         player_state.input_delayer = 10;
 
-                        // Поворачиваем игрока
                         match facing {
                             0 => player_state.facing = Facing::Up,
                             1 => player_state.facing = Facing::Down,
@@ -239,11 +238,21 @@ pub fn run() {
                             _ => {}
                         }
 
-                        // Центрируем камеру
-                        map_state.scroll_x = (player_state.pixel_x / 16 - 128).clamp(0, 64 * 24 - 256);
-                        map_state.scroll_y = (player_state.pixel_y / 16 - 112).clamp(0, 64 * 24 - 224);
-                        map_state.target_scroll_x = map_state.scroll_x;
-                        map_state.target_scroll_y = map_state.scroll_y;
+                        // 4) Камера: с учётом AREAS НОВОЙ КАРТЫ + снап без лерпа.
+                        //    new_for_warp принимает ТАЙЛЫ (не пиксели) и сам умножает на 24.
+                        //    Внутри находит area, в которую попадает (tx, ty),
+                        //    и сразу ставит scroll_x/scroll_y = target_scroll_x/target_scroll_y.
+                        map_state = MapState::new_for_warp(tx as i32, ty as i32, &map_data);
+
+                        // 5) Прожечь step_events на тайле спавна:
+                        //    если варп кинул прямо на триггер — layout переключится сразу.
+                        let _ = crate::game::map::events::check_tile_events(
+                            &mut player_state,
+                            &mut map_data,
+                            &mut events_state,
+                            tx as i32,
+                            ty as i32,
+                        );
                     }
 
                     // Advance player animation/movement and update the camera.

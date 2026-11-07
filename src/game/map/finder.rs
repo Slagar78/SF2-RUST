@@ -1,7 +1,7 @@
 // src/game/map/finder.rs
 use std::fs;
 use std::collections::HashMap;
-use crate::game::map::loader::{MapArea, StepEvent, RoofEvent, Warp}; // <--- Добавлен Warp
+use crate::game::map::loader::{MapArea, StepEvent, RoofEvent, Warp};
 
 pub struct MapPaths {
     pub map_name: String,
@@ -19,7 +19,8 @@ pub struct MapPaths {
     pub areas: Vec<MapArea>,
     pub step_events: Vec<StepEvent>,
     pub roof_events: Vec<RoofEvent>,
-    pub warps: Vec<Warp>, // <--- ДОБАВЛЕНО
+    pub warps: Vec<Warp>,
+    pub anim_data: Option<(u8, usize, usize)>,
 }
 
 pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
@@ -27,11 +28,9 @@ pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
     let map_prefix = format!("map{:02}", map_id);
     let map_label = format!("Map{:02}", map_id);
 
-    // 1. Ищем имя карты в map_names.txt
-    let names_path = format!("{}map_names.txt", base_dir);
-    let names_content = fs::read_to_string(&names_path).expect("Нет map_names.txt");
+    // 1. Имя карты
+    let names_content = fs::read_to_string(format!("{}map_names.txt", base_dir)).expect("Нет map_names.txt");
     let mut map_name = "UNKNOWN".to_string();
-
     for line in names_content.lines() {
         let clean = line.split(';').next().unwrap().trim();
         if clean.starts_with(&format!("{:02} ", map_id)) {
@@ -39,10 +38,6 @@ pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
             break;
         }
     }
-
-    // 2. Читаем entries.asm и ищем пути для этой карты
-    let entries_path = format!("{}entries.asm", base_dir);
-    let entries_content = fs::read_to_string(&entries_path).expect("Нет entries.asm");
 
     let mut paths = MapPaths {
         map_name,
@@ -60,37 +55,69 @@ pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
         areas: Vec::new(),
         step_events: Vec::new(),
         roof_events: Vec::new(),
-        warps: Vec::new(), // <--- ДОБАВЛЕНО
+        warps: Vec::new(),
+        anim_data: None,
     };
 
-    let mut in_map_block = false;
+    // 2. Ищем пути в entries.asm (ДИНАМИЧЕСКИ)
+    let entries_content = fs::read_to_string(format!("{}entries.asm", base_dir)).expect("Нет entries.asm");
+    
+    let mut in_target_map = false;
+    let mut dc_l_index = 0;
 
     for line in entries_content.lines() {
         let clean = line.split(';').next().unwrap().trim();
 
+        // Находим начало нужной карты (например, "Map24:")
         if clean.starts_with(&format!("{}:", map_label)) {
-            in_map_block = true;
+            in_target_map = true;
+            dc_l_index = 0;
             continue;
         }
 
-        if in_map_block && clean.starts_with("Map") && clean.contains(":") && !clean.starts_with(&map_label) {
-            break;
-        }
+        if in_target_map {
+            // Если наткнулись на начало следующей карты (например "Map25:") — выходим
+            if clean.starts_with("Map") && clean.ends_with(":") && !clean.contains("s") {
+                break;
+            }
 
-        if in_map_block {
-            if clean.starts_with(&format!("{}s0_Blocks:", map_label)) { paths.blocks_path = extract_path(clean).unwrap_or_default(); }
-            if clean.starts_with(&format!("{}s1_Layout:", map_label)) { paths.layout_path = extract_path(clean).unwrap_or_default(); }
-            if clean.starts_with(&format!("{}s2_Areas:", map_label)) { paths.areas_path = extract_path(clean).unwrap_or_default(); }
-            if clean.starts_with(&format!("{}s4_StepEvents:", map_label)) { paths.step_events_path = extract_path(clean).unwrap_or_default(); }
-            if clean.starts_with(&format!("{}s5_RoofEvents:", map_label)) { paths.roof_events_path = extract_path(clean).unwrap_or_default(); }
-            if clean.starts_with(&format!("{}s6_WarpEvents:", map_label)) { paths.warp_events_path = extract_path(clean).unwrap_or_default(); }
-            if clean.starts_with(&format!("{}s7_ChestItems:", map_label)) { paths.chest_items_path = extract_path(clean).unwrap_or_default(); }
-            if clean.starts_with(&format!("{}s8_OtherItems:", map_label)) { paths.other_items_path = extract_path(clean).unwrap_or_default(); }
-            if clean.starts_with(&format!("{}s9_Animations:", map_label)) { paths.animations_path = extract_path(clean).unwrap_or_default(); }
+            // Читаем строки dc.l
+            if clean.starts_with("dc.l ") {
+                let replaced = clean.replace("dc.l", "");
+                let ptr_name = replaced.trim();
+                
+                // Если это не $FFFFFFFF, ищем этот указатель в файле
+                if ptr_name != "$FFFFFFFF" && !ptr_name.is_empty() {
+                    let target_label = format!("{}:", ptr_name);
+                    
+                    // Ищем реальный путь по этому указателю (например, Map23s0_Blocks:)
+                    for sub_line in entries_content.lines() {
+                        let sub_clean = sub_line.split(';').next().unwrap().trim();
+                        if sub_clean.starts_with(&target_label) {
+                            let path = extract_path(sub_clean).unwrap_or_default();
+                            match dc_l_index {
+                                0 => paths.blocks_path = path,
+                                1 => paths.layout_path = path,
+                                2 => paths.areas_path = path,
+                                3 => {}, // FlagEvents
+                                4 => paths.step_events_path = path,
+                                5 => paths.roof_events_path = path,
+                                6 => paths.warp_events_path = path,
+                                7 => paths.chest_items_path = path,
+                                8 => paths.other_items_path = path,
+                                9 => paths.animations_path = path,
+                                _ => {}
+                            }
+                            break;
+                        }
+                    }
+                }
+                dc_l_index += 1;
+            }
         }
     }
 
-    // 3. Читаем 00-tilesets.asm
+    // 3. Тайлсеты и палитра
     let tilesets_asm = format!("src/data/maps/entries/{}/00-tilesets.asm", map_prefix);
     if let Ok(content) = fs::read_to_string(&tilesets_asm) {
         for line in content.lines() {
@@ -101,25 +128,23 @@ pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
                 paths.palette_path = find_in_registry("src/data/graphics/maps/mappalettes/entries.asm", &label).unwrap_or_default();
             } else if clean.starts_with("mapTileset") {
                 let id: u8 = clean.split_whitespace().nth(1).unwrap_or("255").parse().unwrap_or(255);
-                if id == 255 {
-                    paths.tileset_paths.push(String::new());
-                } else {
+                if id != 255 {
                     let label = format!("MapTileset{:03}", id);
                     let path = find_in_registry("src/data/graphics/maps/maptilesets/entries.asm", &label).unwrap_or_default();
                     paths.tileset_paths.push(path);
+                } else {
+                    paths.tileset_paths.push(String::new());
                 }
             }
         }
     }
+    while paths.tileset_paths.len() < 5 { paths.tileset_paths.push(String::new()); }
 
-    while paths.tileset_paths.len() < 5 {
-        paths.tileset_paths.push(String::new());
-    }
-
-    // 4. Читаем ЗОНЫ
+    // 4. Зоны
     let areas_asm = format!("src/data/maps/entries/{}/2-areas.asm", map_prefix);
     if let Ok(content) = fs::read_to_string(&areas_asm) {
         let mut start = (0, 0);
+        let mut end = (0, 0);
         for line in content.lines() {
             let clean = line.split(';').next().unwrap().trim();
             if clean.starts_with("mainLayerStart") {
@@ -127,14 +152,23 @@ pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
                 if n.len() >= 2 { start = (n[0] as u8, n[1] as u8); }
             } else if clean.starts_with("mainLayerEnd") {
                 let n: Vec<i32> = clean.replace("mainLayerEnd", "").split(',').filter_map(|s| s.trim().parse().ok()).collect();
+                if n.len() >= 2 { end = (n[0] as u8, n[1] as u8); }
+            } else if clean.starts_with("scndLayerFgndStart") {
+                let n: Vec<i32> = clean.replace("scndLayerFgndStart", "").split(',').filter_map(|s| s.trim().parse().ok()).collect();
                 if n.len() >= 2 { 
-                    paths.areas.push(MapArea { start_x: start.0, start_y: start.1, end_x: n[0] as u8, end_y: n[1] as u8 });
+                    let scnd = (n[0] as u8, n[1] as u8);
+                    // Сохраняем зону ТОЛЬКО когда прочитали все три параметра
+                    paths.areas.push(MapArea { 
+                        start_x: start.0, start_y: start.1, 
+                        end_x: end.0, end_y: end.1,
+                        scnd_x: scnd.0, scnd_y: scnd.1
+                    }); 
                 }
             }
         }
     }
 
-    // 5. Читаем ДВЕРИ
+    // 5. Двери
     let steps_asm = format!("src/data/maps/entries/{}/4-step-events.asm", map_prefix);
     if let Ok(content) = fs::read_to_string(&steps_asm) {
         let mut trig = (0, 0); let mut src = (0, 0); let mut size = (0, 0);
@@ -151,14 +185,12 @@ pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
                 if n.len() >= 2 { size = (n[0] as u8, n[1] as u8); }
             } else if clean.starts_with("sbcDest") {
                 let n: Vec<i32> = clean.replace("sbcDest", "").split(',').filter_map(|s| s.trim().parse().ok()).collect();
-                if n.len() >= 2 {
-                    paths.step_events.push(StepEvent { trig_x: trig.0, trig_y: trig.1, src_x: src.0, src_y: src.1, width: size.0, height: size.1, dest_x: n[0] as u8, dest_y: n[1] as u8 });
-                }
+                if n.len() >= 2 { paths.step_events.push(StepEvent { trig_x: trig.0, trig_y: trig.1, src_x: src.0, src_y: src.1, width: size.0, height: size.1, dest_x: n[0] as u8, dest_y: n[1] as u8 }); }
             }
         }
     }
 
-    // 6. Читаем КРЫШИ
+    // 6. Крыши
     let roofs_asm = format!("src/data/maps/entries/{}/5-roof-events.asm", map_prefix);
     if let Ok(content) = fs::read_to_string(&roofs_asm) {
         let mut trig = (0, 0); let mut src = (0, 0); let mut size = (0, 0);
@@ -175,14 +207,12 @@ pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
                 if n.len() >= 2 { size = (n[0] as u8, n[1] as u8); }
             } else if clean.starts_with("slbcDest") {
                 let n: Vec<i32> = clean.replace("slbcDest", "").split(',').filter_map(|s| s.trim().parse().ok()).collect();
-                if n.len() >= 2 {
-                    paths.roof_events.push(RoofEvent { trig_x: trig.0, trig_y: trig.1, src_x: src.0, src_y: src.1, width: size.0, height: size.1, dest_x: n[0] as u8, dest_y: n[1] as u8 });
-                }
+                if n.len() >= 2 { paths.roof_events.push(RoofEvent { trig_x: trig.0, trig_y: trig.1, src_x: src.0, src_y: src.1, width: size.0, height: size.1, dest_x: n[0] as u8, dest_y: n[1] as u8 }); }
             }
         }
     }
 
-    // 7. Читаем ВАРПЫ из 6-warp-events.asm
+    // 7. Варпы
     let warps_asm = format!("src/data/maps/entries/{}/6-warp-events.asm", map_prefix);
     if let Ok(content) = fs::read_to_string(&warps_asm) {
         let mut current_warp: Option<Warp> = None;
@@ -191,9 +221,7 @@ pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
             if clean.starts_with("mWarp") {
                 if let Some(w) = current_warp.take() { paths.warps.push(w); }
                 let n: Vec<i32> = clean.replace("mWarp", "").split(',').filter_map(|s| s.trim().parse().ok()).collect();
-                if n.len() >= 2 {
-                    current_warp = Some(Warp { src_x: n[0] as u8, src_y: n[1] as u8, dest_map: 0, dest_x: 0, dest_y: 0, facing: 0 });
-                }
+                if n.len() >= 2 { current_warp = Some(Warp { src_x: n[0] as u8, src_y: n[1] as u8, dest_map: 0, dest_x: 0, dest_y: 0, facing: 0 }); }
             } else if clean.starts_with("warpMap") {
                 if let Some(ref mut w) = current_warp {
                     let name = clean.replace("warpMap", "").trim().to_string();
@@ -213,6 +241,34 @@ pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
             }
         }
         if let Some(w) = current_warp { paths.warps.push(w); }
+    }
+
+    // 8. Анимации
+    if !paths.animations_path.is_empty() {
+        if let Ok(content) = fs::read_to_string(format!("src/{}", paths.animations_path)) {
+            let mut src_id = 0;
+            let mut dest_addr = 0;
+            let mut length = 0;
+            for line in content.lines() {
+                let clean = line.split(';').next().unwrap().trim();
+                if clean.starts_with("mapAnimation") {
+                    let n: Vec<&str> = clean.split_whitespace().collect();
+                    if n.len() >= 2 { src_id = n[1].trim_end_matches(',').parse().unwrap_or(0); }
+                } else if clean.starts_with("mapAnimEntry") {
+                    let n: Vec<&str> = clean.split_whitespace().collect();
+                    if n.len() >= 4 {
+                        length = n[2].trim_end_matches(',').parse().unwrap_or(0);
+                        let dest_str = n[3].trim_end_matches(',');
+                        if dest_str.starts_with('$') { dest_addr = usize::from_str_radix(&dest_str[1..], 16).unwrap_or(0); }
+                    }
+                    break; 
+                }
+            }
+            if src_id > 0 && length > 0 {
+                let dest_offset = dest_addr.saturating_sub(0x300);
+                paths.anim_data = Some((src_id, dest_offset, length));
+            }
+        }
     }
 
     paths

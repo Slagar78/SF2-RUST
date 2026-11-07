@@ -1,6 +1,5 @@
-// src/game/map/draw.rs
 use sdl3::pixels::Color;
-use crate::game::map::loader::{MapData, MapLayoutBlock};
+use crate::game::map::loader::{MapData, MapLayoutBlock, MapArea};
 use crate::game::map::camera::MapState;
 
 fn put_pixel(buf: &mut [u8], pitch: usize, x: i32, y: i32, color: Color) {
@@ -14,7 +13,7 @@ fn put_pixel(buf: &mut [u8], pitch: usize, x: i32, y: i32, color: Color) {
 }
 
 pub fn draw_map(buf: &mut [u8], pitch: usize, map_data: &MapData, state: &MapState, layer: u8) {
-    // Очищаем экран черным (фон VDP), только для нижнего слоя
+    // Очищаем экран черным при отрисовке нижнего слоя
     if layer == 0 {
         for y in 0..224 {
             for x in 0..320 {
@@ -30,23 +29,36 @@ pub fn draw_map(buf: &mut [u8], pitch: usize, map_data: &MapData, state: &MapSta
     let scroll_y = state.scroll_y;
     let x_offset = 32;
 
-    // ВЕРХНЯЯ ПОЛОВИНА (Земля и стены)
-    for by in 0..32 {
-        for bx in 0..64 {
-            let block = &map_data.layout[by * 64 + bx];
-            draw_block(buf, pitch, map_data, block, bx, by, scroll_x, scroll_y, x_offset, layer);
+    // Находим текущую зону игрока
+    let tile_x = (state.player_x / 24) as u8;
+    let tile_y = (state.player_y / 24) as u8;
+    
+    let mut active_area = MapArea { 
+        start_x: 0, start_y: 0, 
+        end_x: 63, end_y: 63, 
+        scnd_x: 0, scnd_y: 0 
+    };
+    
+    for area in &map_data.areas {
+        if tile_x >= area.start_x && tile_x <= area.end_x && tile_y >= area.start_y && tile_y <= area.end_y {
+            active_area = *area;
+            break;
         }
     }
 
-    // НИЖНЯЯ ПОЛОВИНА (Крыши)
-    if layer == 1 {
-        for by in 32..64 {
-            for bx in 0..64 {
-                let block = &map_data.layout[by * 64 + bx];
-                if block.block_index != 0 {
-                    draw_block(buf, pitch, map_data, block, bx, by - 32, scroll_x, scroll_y, x_offset, layer);
-                }
-            }
+    // ВАЖНО: Перебираем ВСЮ карту 64x64, чтобы не было черных дыр на краях экрана!
+    for by in 0..64 {
+        for bx in 0..64 {
+            let block = &map_data.layout[by * 64 + bx];
+            if block.block_index == 0 { continue; }
+
+            // Определяем, относится ли этот блок к слою крыш (сдвигаем его) или к основному слою
+            let is_secondary = bx >= active_area.scnd_x as usize && by >= active_area.scnd_y as usize;
+
+            let draw_x = if is_secondary { bx - active_area.scnd_x as usize } else { bx };
+            let draw_y = if is_secondary { by - active_area.scnd_y as usize } else { by };
+
+            draw_block(buf, pitch, map_data, block, draw_x, draw_y, scroll_x, scroll_y, x_offset, layer);
         }
     }
 }
@@ -60,6 +72,7 @@ fn draw_block(buf: &mut [u8], pitch: usize, map_data: &MapData, block: &MapLayou
         let word = map_data.blockset[off + ti];
         let is_high_priority = (word & 0x8000) != 0;
 
+        // Слой 0 рисует только фон. Слой 1 рисует только то, что перекрывает игрока (в т.ч. верхушки деревьев и стены).
         if layer == 0 && is_high_priority { continue; }
         if layer == 1 && !is_high_priority { continue; }
 

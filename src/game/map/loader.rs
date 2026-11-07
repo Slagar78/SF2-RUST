@@ -53,6 +53,7 @@ pub struct MapItem {
 pub struct MapArea {
     pub start_x: u8, pub start_y: u8,
     pub end_x: u8, pub end_y: u8,
+    pub scnd_x: u8, pub scnd_y: u8,
 }
 
 pub struct MapData {
@@ -86,19 +87,16 @@ pub fn load_map_names() -> HashMap<String, u8> {
 }
 
 pub fn load_map_data(map_id: u8) -> MapData {
-    // 1. Ищем пути (теперь передаем map_dict)
-    let map_dict = load_map_names(); // <--- ВЫЗЫВАЕМ ЗДЕСЬ
+    let map_dict = load_map_names();
     let paths = crate::game::map::finder::find_map_paths(map_id, &map_dict);
     println!("Загрузка карты {} ({})...", map_id, paths.map_name);
 
-    // 2. Блоки и лейаут
     let blocks_raw = std::fs::read(format!("src/{}", paths.blocks_path)).expect("Нет 0-blocks.bin");
     let blockset = map_block_subroutine(&blocks_raw);
     let layout_raw = std::fs::read(format!("src/{}", paths.layout_path)).expect("Нет 1-layout.bin");
     let layout_words = map_layout_subroutine(&layout_raw);
     let layout: Vec<MapLayoutBlock> = layout_words.iter().map(|&w| MapLayoutBlock { block_index: w & 0x3ff, flags: w & 0xfc00 }).collect();
 
-    // 3. Тайлсеты
     let mut tilesets = Vec::new();
     for path in &paths.tileset_paths {
         if path.is_empty() {
@@ -108,41 +106,43 @@ pub fn load_map_data(map_id: u8) -> MapData {
             tilesets.push(decompressor::decompress(&comp).unwrap());
         }
     }
-    if let Ok(comp) = std::fs::read("src/data/graphics/maps/maptilesets/maptileset074.bin") {
-        tilesets.push(decompressor::decompress(&comp).unwrap());
-    } else {
-        tilesets.push(Vec::new());
-    }
 
-    // 4. Палитра
-    let pal_data = std::fs::read(format!("src/{}", paths.palette_path)).unwrap_or_else(|_| panic!("Нет палитры {}", paths.palette_path));
+    let pal_data = std::fs::read(format!("src/{}", paths.palette_path)).unwrap_or_else(|_| panic!("Нет палитры"));
     let mut palette = Vec::new();
-    for i in 0..16 {
-        palette.push(decode_genesis_color(pal_data[i * 2], pal_data[i * 2 + 1]));
-    }
+    for i in 0..16 { palette.push(decode_genesis_color(pal_data[i * 2], pal_data[i * 2 + 1])); }
 
-    // 5. ВАРПЫ (ТЕПЕРЬ ДИНАМИЧЕСКИ!)
     let warps = paths.warps;
-
-    // 6. ДВЕРИ
     let step_events = paths.step_events;
-
-    // 7. КРЫШИ
     let roof_events = paths.roof_events;
+    let areas = paths.areas;
 
-    // 8. ПРЕДМЕТЫ (ПОКА ХАРДКОД)
     let items = vec![
         MapItem { x: 6, y: 18, flag: 220, item_id: 0 },
         MapItem { x: 59, y: 17, flag: 128, item_id: 1 },
     ];
 
-    // 9. ЗОНЫ
-    let areas = paths.areas;
+    // 10. АНИМАЦИИ (ДИНАМИЧЕСКИ, С УЧЕТОМ $FFFFFFFF)
+    let mut animations = Vec::new();
+    if let Some((src_id, dest_offset, length)) = paths.anim_data {
+        let src_path = format!("src/data/graphics/maps/maptilesets/maptileset{:03}.bin", src_id);
+        if let Ok(comp) = std::fs::read(&src_path) {
+            let src_tiles = decompressor::decompress(&comp).unwrap();
+            
+            let dest_tileset_idx = 4; 
+            let dest_start_byte = dest_offset * 32; // 32 байта на тайл
+            let len_byte = length * 32;
 
-    // 10. АНИМАЦИИ (ПОКА ХАРДКОД)
-    let animations = vec![
-        MapAnimation { timer: 20, is_frame2: false }
-    ];
+            animations.push(MapAnimation {
+                dest_tileset_idx,
+                src_tiles,
+                dest_start_byte,
+                len_byte,
+                frame2_offset: len_byte,
+                timer: 20,
+                is_frame2: false,
+            });
+        }
+    }
 
     MapData { layout, blockset, tilesets, palette, warps, step_events, items, roof_events, areas, animations }
 }
