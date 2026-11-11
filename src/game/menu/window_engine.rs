@@ -111,7 +111,7 @@ impl WindowEngine {
         let entry = &mut self.entries[slot];
         entry.orig_x_y = entry.x_y;
         entry.target_x_y = dest_x_y;
-        entry.anim_length = length;
+        entry.anim_length = length.saturating_mul(2);
         entry.anim_counter = 0;
     }
 

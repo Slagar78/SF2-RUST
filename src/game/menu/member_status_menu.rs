@@ -16,6 +16,8 @@ pub struct MemberStatusState {
     pub closing: bool,
     pub blink_timer: u16,
     pub eyes_closed: bool,
+    pub anim_timer: u16,
+    pub anim_frame: u16,    // Текущий кадр (0 или 1)
 }
 
 impl MemberStatusState {
@@ -29,6 +31,8 @@ impl MemberStatusState {
             closing: false,
             blink_timer: 120,
             eyes_closed: false,
+            anim_timer: 20,
+            anim_frame: 0,
         }
     }
 
@@ -103,13 +107,17 @@ impl MemberStatusState {
 
         if let Ok(raw) = std::fs::read("src/data/graphics/mapsprites/mapsprite000-2.bin") {
             let d = decompressor::decompress_basic(&raw);
-            if d.len() >= 288 {
-                let mut reordered = vec![0u8; 288];
-                for ty in 0..3 {
-                    for tx in 0..3 {
-                        let src = (tx * 3 + ty) * 32;
-                        let dst = (ty * 3 + tx) * 32;
-                        reordered[dst..dst + 32].copy_from_slice(&d[src..src + 32]);
+            if d.len() >= 576 {
+                let mut reordered = vec![0u8; 576];
+                for f in 0..2 {
+                    let frame_src = f * 288;
+                    let frame_dst = f * 288;
+                    for ty in 0..3 {
+                        for tx in 0..3 {
+                            let src = frame_src + (tx * 3 + ty) * 32;
+                            let dst = frame_dst + (ty * 3 + tx) * 32;
+                            reordered[dst..dst + 32].copy_from_slice(&d[src..src + 32]);
+                        }
                     }
                 }
                 let _ = vram.write_bytes(VRAM_MAP_SPRITES, &reordered);
@@ -146,6 +154,14 @@ impl MemberStatusState {
             if self.blink_timer == 0 {
                 self.toggle_eyes(window_engine);
             }
+        }
+
+        // Анимация шага для спрайта
+        if self.anim_timer > 0 {
+            self.anim_timer -= 1;
+        } else {
+            self.anim_timer = 20; // Скорость анимации (20 кадров = ~0.3 сек)
+            self.anim_frame = if self.anim_frame == 0 { 1 } else { 0 };
         }
     }
 
@@ -257,14 +273,15 @@ impl MemberStatusState {
             let win_x = (((entry.x_y >> 8) as u8 as i8) as i32 * 8) + 32;
             let win_y = ((entry.x_y & 0xFF) as u8 as i8) as i32 * 8;
 
-            let spr_x = win_x + 2 * 8;
+            let spr_x = win_x + 2 * 8 + 4;
             let spr_y = win_y + 2 * 8; 
 
             let tile_base = (VRAM_MAP_SPRITES / 32) as u16;
+            let frame_offset = self.anim_frame * 9; // 9 тайлов на кадр
 
             for r in 0..3 {
                 for c in 0..3 {
-                    let tile_idx = tile_base + (r * 3) + c;
+                    let tile_idx = tile_base + (r * 3) + c + frame_offset;
                     if let Some(tile) = vram.tile(tile_idx as usize) {
                         for py in 0..8 {
                             for px in 0..8 {

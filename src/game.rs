@@ -92,6 +92,7 @@ pub fn run() {
     let mut menu_open = false;
     let mut pending_menu_open = false;
     let mut menu_anim_timer: u16 = 20;
+    let mut menu_anim_delay: u16 = 0;
     let mut menu_choice: usize = 0;
     let mut last_input: u8 = 0;
     
@@ -300,10 +301,17 @@ pub fn run() {
 
                         let current_input = input_state.current_player_input;
 
-                        if (current_input & INPUT_UP) != 0 { menu_choice = 0; }
-                        else if (current_input & INPUT_LEFT) != 0 { menu_choice = 1; }
-                        else if (current_input & INPUT_RIGHT) != 0 { menu_choice = 2; }
-                        else if (current_input & INPUT_DOWN) != 0 { menu_choice = 3; }
+                        let mut choice_changed = false;
+                        if (current_input & INPUT_UP) != 0 && menu_choice != 0 { menu_choice = 0; choice_changed = true; }
+                        else if (current_input & INPUT_LEFT) != 0 && menu_choice != 1 { menu_choice = 1; choice_changed = true; }
+                        else if (current_input & INPUT_RIGHT) != 0 && menu_choice != 2 { menu_choice = 2; choice_changed = true; }
+                        else if (current_input & INPUT_DOWN) != 0 && menu_choice != 3 { menu_choice = 3; choice_changed = true; }
+
+                        // Если выбор изменился, сбрасываем таймер, чтобы подсветка загорелась сразу
+                        if choice_changed {
+                            menu_anim_timer = 20; 
+                            menu_anim_delay = 18; // Задержка 0.3 сек (18 кадров)
+                        }
 
                         let confirm_pressed = (current_input & (INPUT_A | INPUT_C)) != 0;
                         let confirm_was_pressed = (last_input & (INPUT_A | INPUT_C)) != 0;
@@ -339,8 +347,14 @@ pub fn run() {
                     }
 
                     player_state.tick(&mut map_data, &mut events_state);
-                    menu_anim_timer = menu_anim_timer.saturating_sub(1);
-                    if menu_anim_timer == 0 { menu_anim_timer = 20; }
+                    
+                    if menu_anim_delay > 0 {
+                        menu_anim_delay -= 1;
+                        menu_anim_timer = 20; // Держим плитку статичной
+                    } else {
+                        menu_anim_timer = menu_anim_timer.saturating_sub(1);
+                        if menu_anim_timer == 0 { menu_anim_timer = 20; }
+                    }
                     should_render = true;
                 }
 
@@ -353,20 +367,24 @@ pub fn run() {
                     let current_input = input_state.current_player_input;
 
                     if !is_animating && !member_menu.closing {
-                        if current_input != last_input {
-                            if (current_input & (INPUT_A | INPUT_C)) != 0 {
-                                member_menu.start_closing_animation(&mut window_engine);
-                                member_menu.pending_status = true;
-                                last_input = current_input;
-                            } else if (current_input & INPUT_B) != 0 {
-                                member_menu.start_closing_animation(&mut window_engine);
-                                member_menu.pending_status = false;
-                                last_input = current_input;
-                            } else {
-                                last_input = current_input;
+                        if (current_input & INPUT_B) != 0 {
+                            member_menu.start_closing_animation(&mut window_engine);
+                            member_menu.pending_status = false;
+                            last_input = current_input;
+                        } else if (current_input & (INPUT_A | INPUT_C)) != 0 && (last_input & (INPUT_A | INPUT_C)) == 0 {
+                            member_menu.start_closing_animation(&mut window_engine);
+                            member_menu.pending_status = true;
+                            last_input = current_input;
+                        } else {
+                            if current_input != last_input {
+                                if (current_input & INPUT_UP) != 0 && member_menu.selected_member > 0 {
+                                    member_menu.selected_member -= 1;
+                                }
+                                else if (current_input & INPUT_DOWN) != 0 && member_menu.selected_member < force_members.len() - 1 {
+                                    member_menu.selected_member += 1;
+                                }
                             }
-                        } else if current_input == 0 {
-                            last_input = 0;
+                            last_input = current_input;
                         }
                     }
 
