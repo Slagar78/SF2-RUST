@@ -15,7 +15,6 @@ use crate::game::screens::launcher::LauncherState;
 
 use sdl3::event::Event;
 use sdl3::keyboard::Keycode;
-use std::time::Duration;
 use std::collections::HashSet;
 use crate::engine::renderer::Renderer;
 use crate::engine::input::{InputState, INPUT_A, INPUT_B, INPUT_C, INPUT_UP, INPUT_DOWN, INPUT_LEFT, INPUT_RIGHT};
@@ -86,7 +85,7 @@ pub fn run() {
     let mut game_state = GameState::Launcher;
     let mut frame_counter = 0;
 
-    let mut time_state = TimeState::new(59.92);
+    let mut time_state = TimeState::new(60.0);
 
     let mut window_engine = WindowEngine::new();
     let mut menu_open = false;
@@ -578,7 +577,5 @@ pub fn run() {
 
             renderer.present(fill_screen, crop_sides);
         }
-        
-        std::thread::sleep(Duration::from_millis(1));
     }
 }
