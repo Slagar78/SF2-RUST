@@ -174,7 +174,8 @@ impl MemberMenuState {
             let h = 16;
             let color = Color::RGB(255, 0, 0);
 
-            for x in 0..w {
+            // ВЕРХНЯЯ И НИЖНЯЯ ЛИНИИ (от 1 до w-1, чтобы срезать углы)
+            for x in 1..w-1 {
                 let px = target_x + x;
                 let py_top = target_y;
                 let py_bot = target_y + h - 1;
@@ -189,7 +190,8 @@ impl MemberMenuState {
                 }
             }
 
-            for y in 0..h {
+            // ЛЕВАЯ И ПРАВАЯ ЛИНИИ (от 1 до h-1, чтобы срезать углы)
+            for y in 1..h-1 {
                 let py = target_y + y;
                 let px_left = target_x;
                 let px_right = target_x + w - 1;
@@ -205,4 +207,5 @@ impl MemberMenuState {
             }
         }
     }
+
 }

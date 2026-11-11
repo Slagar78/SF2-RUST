@@ -7,6 +7,11 @@ pub mod menu;
 pub mod ally_parser;
 pub mod item_parser;
 pub mod transition;
+pub mod render_mode;
+use crate::game::render_mode::RenderMode;
+use crate::game::screens::launcher::LauncherState;
+
+
 
 use sdl3::event::Event;
 use sdl3::keyboard::Keycode;
@@ -40,7 +45,7 @@ fn decode_genesis_color(first: u8, second: u8) -> sdl3::pixels::Color {
 
 pub fn run() {
     let sdl_context = sdl3::init().unwrap();
-    let mut renderer = Renderer::new(&sdl_context);
+    let mut renderer = Renderer::new(&sdl_context, RenderMode::Original);
     let mut event_pump = sdl_context.event_pump().unwrap();
 
     let mut vram = base_tiles::load_base_tiles().expect("Нет basetiles.bin");
@@ -77,7 +82,8 @@ pub fn run() {
     let mut input_state = InputState::new();
     let mut pressed_keys = HashSet::new();
     
-    let mut game_state = GameState::SegaLogo;
+    let mut launcher_state = LauncherState::new();
+    let mut game_state = GameState::Launcher;
     let mut frame_counter = 0;
 
     let mut time_state = TimeState::new(59.92);
@@ -146,6 +152,15 @@ pub fn run() {
             window_engine.tick();
 
             match game_state {
+                GameState::Launcher => {
+                    screens::launcher::update_and_draw(&mut renderer, &mut launcher_state, &input_state);
+                    if let Some(mode) = launcher_state.confirmed.take() {
+                        renderer = Renderer::new(&sdl_context, mode);
+                        game_state = GameState::SegaLogo;
+                        frame_counter = 0;
+                    }
+                    should_render = true;
+                }
                 GameState::SegaLogo => {
                     screens::segalogo::update_and_draw(&mut renderer, frame_counter);
                     if frame_counter > 200 { game_state = GameState::TitleScreen; frame_counter = 0; }
@@ -523,7 +538,25 @@ pub fn run() {
                 }).unwrap();
             }
             
-            renderer.present();
+            let fill_screen = matches!(game_state, 
+                GameState::TitleScreen | 
+                GameState::WitchScreen |
+                GameState::Map | 
+                GameState::Menu | 
+                GameState::MemberMenu | 
+                GameState::MemberStatus | 
+                GameState::MagicMenu
+            );
+
+            let crop_sides = matches!(game_state, 
+                GameState::Map | 
+                GameState::Menu | 
+                GameState::MemberMenu | 
+                GameState::MemberStatus | 
+                GameState::MagicMenu
+            );
+
+            renderer.present(fill_screen, crop_sides);
         }
         
         std::thread::sleep(Duration::from_millis(1));

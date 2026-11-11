@@ -187,14 +187,17 @@ impl MagicMenuState {
             let win_x = (((entry.x_y >> 8) as u8 as i8) as i32 * 8) + 32;
             let win_y = ((entry.x_y & 0xFF) as u8 as i8) as i32 * 8;
 
+            // Начинаем ровно с 1-го тайла (где стоит стрелка ">")
             let target_x = win_x + (1 * 8); 
             let target_y = win_y + ((3 + self.selected_member as i32 * 2) * 8) - 4;
 
+            // Ширина 72 пикселя (9 тайлов) — захватывает стрелку и имя
             let w = 72;
             let h = 16;
             let color = Color::RGB(255, 0, 0);
 
-            for x in 0..w {
+            // ВЕРХНЯЯ И НИЖНЯЯ ЛИНИИ (от 1 до w-1, чтобы срезать углы)
+            for x in 1..w-1 {
                 let px = target_x + x;
                 let py_top = target_y;
                 let py_bot = target_y + h - 1;
@@ -209,7 +212,8 @@ impl MagicMenuState {
                 }
             }
 
-            for y in 0..h {
+            // ЛЕВАЯ И ПРАВАЯ ЛИНИИ (от 1 до h-1, чтобы срезать углы)
+            for y in 1..h-1 {
                 let py = target_y + y;
                 let px_left = target_x;
                 let px_right = target_x + w - 1;
@@ -225,4 +229,5 @@ impl MagicMenuState {
             }
         }
     }
+
 }

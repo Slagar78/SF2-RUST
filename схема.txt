@@ -7,15 +7,16 @@ C:\my_project\SF2-RUST\
 │   │
 │   ├── engine.rs                   <-- Engine module root: connects engine submodules
 │   ├── engine\
-│   │   ├── input.rs                <-- Input handling (A, B, C, directional pad)
+│   │   ├── input.rs                <-- Input handling (A, B, C, directional pad, Enter)
 │   │   ├── decompressor.rs         <-- STACK and Basic decompressors
 │   │   ├── base_tiles.rs           <-- VRAM emulation, basetiles.bin loading, VRAM map constants
 │   │   ├── time.rs                 <-- Timer and fixed-timestep game loop
-│   │   └── renderer.rs             <-- SDL3 wrapper (window, textures, pixel buffer)
+│   │   └── renderer.rs             <-- SDL3 wrapper (window, textures, pixel buffer, scaling/centering logic)
 │   │
-│   ├── game.rs                     <-- Main game loop and game-state switching
+│   ├── game.rs                     <-- Main game loop and game-state switching (handles rendering modes)
 │   ├── game\
-│   │   ├── state.rs                <-- GameState enum (SegaLogo, Map, Menu, MemberMenu, MemberStatus, MagicMenu)
+│   │   ├── state.rs                <-- GameState enum (Launcher, SegaLogo, Map, Menu, etc.)
+│   │   ├── render_mode.rs          <-- NEW: RenderMode enum (Original 320x224, Normal 768x672)
 │   │   ├── player.rs               <-- Bowie movement (grid, collisions, turn-in-place, ladders, warps)
 │   │   ├── ally_parser.rs          <-- Parser for .asm data (names, classes, stats, mapsprite)
 │   │   ├── item_parser.rs          <-- Parser for itemnames.asm and itemdefs.asm
@@ -36,13 +37,14 @@ C:\my_project\SF2-RUST\
 │   │   │   ├── layouts.rs          <-- Window layouts (Diamond Menu, portrait from ASM)
 │   │   │   ├── diamond_menu.rs     <-- Diamond Menu logic and rendering (cross-shaped menu)
 │   │   │   ├── member_menu.rs      <-- Party list screen (portrait, summary, list, red highlight)
-│   │   │   ├── magic_menu.rs       <-- NEW: Magic menu (spell list, Egress/Empty icons, red highlight)
+│   │   │   ├── magic_menu.rs       <-- Magic menu (spell list, Egress/Empty icons, red highlight)
 │   │   │   ├── member_status_menu.rs <-- Status screen (ATT, DEF, KILLS, GOLD, blinking)
 │   │   │   ├── portrait.rs         <-- Portrait loading/parsing (Portrait00.bin)
 │   │   │   └── draw_menu.rs        <-- Text rendering in Diamond Menu (MEMBER, MAGIC)
 │   │   │
 │   │   ├── screens.rs              <-- Screens module root: connects screen submodules
 │   │   └── screens\
+│   │       ├── launcher.rs         <-- NEW: Startup UI (Normal / Original resolution buttons)
 │   │       ├── segalogo.rs         <-- SEGA logo animation
 │   │       ├── segalogo_data.rs    <-- Logo frame data
 │   │       ├── title.rs            <-- Title screen (H40)
