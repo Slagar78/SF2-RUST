@@ -161,14 +161,12 @@ impl PlayerState {
         // the staircase direction, and the two staircase orientations (left-hand
         // vs. right-hand) are mirror images of each other.
         if on_stairs_left {
-            if up { 
-                add_cand(-1, -1, Facing::Left); 
-                add_cand(0, -1, Facing::Up); 
-            }
+            // Убрали UP. Поднимаемся только по кнопке ВЛЕВО.
             if left { 
                 add_cand(-1, -1, Facing::Left); 
                 add_cand(-1, 0, Facing::Left);
             }
+            // Оставляем DOWN и RIGHT для спуска.
             if down { 
                 // Diagonal descent is only valid when the next tile continues the staircase.
                 if is_target_stairs(self.tile_x + 1, self.tile_y + 1) {
@@ -183,14 +181,12 @@ impl PlayerState {
                 add_cand(1, 0, Facing::Right);
             }
         } else if on_stairs_right {
-            if up { 
-                add_cand(1, -1, Facing::Right); 
-                add_cand(0, -1, Facing::Up);
-            }
+            // Убрали UP. Поднимаемся только по кнопке ВПРАВО.
             if right { 
                 add_cand(1, -1, Facing::Right); 
                 add_cand(1, 0, Facing::Right);
             }
+            // Оставляем DOWN и LEFT для спуска.
             if down { 
                 if is_target_stairs(self.tile_x - 1, self.tile_y + 1) {
                     add_cand(-1, 1, Facing::Left); 

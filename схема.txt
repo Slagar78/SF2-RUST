@@ -11,18 +11,20 @@ C:\my_project\SF2-RUST\
 │   │   ├── decompressor.rs         <-- STACK and Basic decompressors
 │   │   ├── base_tiles.rs           <-- VRAM emulation and basetiles.bin loading
 │   │   ├── time.rs                 <-- Timer and fixed-timestep game loop
-│   │   └── renderer.rs             <-- SDL3 wrapper (window, textures, pixel buffer)
+│   │   ├── renderer.rs             <-- SDL3 wrapper (window, textures, pixel buffer)
+│   │   └── vram_map.rs             <-- NEW: Константы адресов VRAM (чтобы избежать коллизий)
 │   │
 │   ├── game.rs                     <-- Main game loop and game-state switching
 │   ├── game\
 │   │   ├── state.rs                <-- GameState enum (SegaLogo, Map, Menu, MemberMenu, MemberStatus)
 │   │   ├── player.rs               <-- Bowie movement (grid, collisions, turn-in-place, ladders, warps)
-│   │   ├── ally_parser.rs          <-- Parser for .asm data (names, classes, stats)
+│   │   ├── ally_parser.rs          <-- Parser for .asm data (names, classes, stats, mapsprite)
+│   │   ├── item_parser.rs          <-- NEW: Parser for itemnames.asm and itemdefs.asm
 │   │   ├── transition.rs           <-- Screen fade logic for warps (fade out/in)
 │   │   │
 │   │   ├── map.rs                  <-- Map module root: connects map submodules
 │   │   ├── map\
-│   │   │   ├── finder.rs           <-- NEW: Parser for entries.asm, map paths, and 2-areas.asm
+│   │   │   ├── finder.rs           <-- Parser for entries.asm, map paths, and 2-areas.asm
 │   │   │   ├── loader.rs           <-- Map loading (blocks, layout, tilesets, zones, warps)
 │   │   │   ├── anim.rs             <-- Universal 32-tile animation (water, torches, etc.)
 │   │   │   ├── camera.rs           <-- Camera with dead zones (H32, scrolling)
@@ -35,7 +37,7 @@ C:\my_project\SF2-RUST\
 │   │   │   ├── layouts.rs          <-- Window layouts (Diamond Menu, portrait from ASM)
 │   │   │   ├── diamond_menu.rs     <-- Diamond Menu logic and rendering (cross-shaped menu)
 │   │   │   ├── member_menu.rs      <-- Party list screen (portrait, summary, list)
-│   │   │   ├── member_status_menu.rs <-- Status screen (ATT, DEF, KILLS, GOLD)
+│   │   │   ├── member_status_menu.rs <-- Status screen (ATT, DEF, KILLS, GOLD, blinking)
 │   │   │   ├── portrait.rs         <-- Portrait loading/parsing (Portrait00.bin)
 │   │   │   └── draw_menu.rs        <-- Text rendering in Diamond Menu (MEMBER, MAGIC)
 │   │   │

@@ -5,6 +5,7 @@ pub mod map;
 pub mod player;
 pub mod menu;
 pub mod ally_parser;
+pub mod item_parser;
 pub mod transition;
 
 use sdl3::event::Event;
@@ -30,7 +31,6 @@ use crate::game::ally_parser::load_force_members;
 const CRAM_VALUE_MAP: [u8; 8] = [0, 52, 87, 116, 144, 172, 206, 255];
 
 // Decode a Genesis/Mega Drive color word stored as two bytes into SDL RGB.
-// Genesis color layout: bits 1-3 = red, bits 5-7 = green, bits 9-11 = blue.
 fn decode_genesis_color(first: u8, second: u8) -> sdl3::pixels::Color {
     let word = ((first as u16) << 8) | (second as u16);
     let r3 = ((word >> 1) & 0x07) as usize;
@@ -47,32 +47,26 @@ pub fn run() {
     // Load the base VRAM tile set required by the renderer.
     let mut vram = base_tiles::load_base_tiles().expect("Нет basetiles.bin");
 
-    // Load main-menu tile graphics into fixed VRAM offsets.
-    // The decompressed blob is split into four directional tilesets
-    // (up/left/right/down) and copied to their corresponding VRAM addresses.
     if let Ok(raw_menu_tiles) = std::fs::read("src/data/graphics/tech/menus/mainmenutiles.bin") {
         let d = decompressor::decompress(&raw_menu_tiles).unwrap_or(raw_menu_tiles);
         if d.len() >= 3456 {
-            vram.write_bytes(0xB800, &d[2880..3456]).expect("Ошибка Up");
-            vram.write_bytes(0xBA40, &d[576..1152]).expect("Ошибка Left");
-            vram.write_bytes(0xBC80, &d[1152..1728]).expect("Ошибка Right");
-            vram.write_bytes(0xBEC0, &d[2304..2880]).expect("Ошибка Down");
+            // Используем VRAM_DIAMOND_MENU (0x38000) + смещения
+            let base = crate::engine::base_tiles::VRAM_DIAMOND_MENU;
+            vram.write_bytes(base, &d[2880..3456]).expect("Ошибка Up");
+            vram.write_bytes(base + 0x240, &d[576..1152]).expect("Ошибка Left");
+            vram.write_bytes(base + 0x480, &d[1152..1728]).expect("Ошибка Right");
+            vram.write_bytes(base + 0x6C0, &d[2304..2880]).expect("Ошибка Down");
         }
     }
 
-    // Load the initial map and runtime map/event state.
     let mut map_data = load_map_data(3);
     let mut events_state = MapEventsState::new();
     
-    // Spawn the player at tile (56, 3).
     let mut player_state = PlayerState::new(56, 3);
     let mut map_state = MapState::new(player_state.pixel_x / 16, player_state.pixel_y / 16);
     
-    // Load player sprite frames.
     let player_sprites = player::load_player_sprites();
     
-    // Build a 64-entry palette by replicating the 16 base Genesis colors
-    // across four palette banks.
     let mut sprite_palette = vec![sdl3::pixels::Color::RGB(0,0,0); 64];
     let pal_data = std::fs::read("src/data/graphics/tech/basepalette.bin").expect("Нет basepalette.bin");
     for i in 0..16 {
@@ -83,18 +77,14 @@ pub fn run() {
         sprite_palette[i + 48] = c;
     }
     
-    // Input state and the set of currently held keys.
     let mut input_state = InputState::new();
     let mut pressed_keys = HashSet::new();
     
-    // Startup state machine begins with the SEGA logo.
     let mut game_state = GameState::SegaLogo;
     let mut frame_counter = 0;
 
-    // Fixed-timestep timer targeting approximately 59.92 Hz.
     let mut time_state = TimeState::new(59.92);
 
-    // Menu/window UI state.
     let mut window_engine = WindowEngine::new();
     let mut menu_open = false;
     let mut menu_anim_timer: u16 = 20;
@@ -106,20 +96,17 @@ pub fn run() {
     let mut member_menu = MemberMenuState::new();
     let mut member_status = MemberStatusState::new();
     let force_members = load_force_members();
+    let _all_items = item_parser::load_items();
 
-    // Initialize the transition manager (fade out/in for warps).
     let mut transition = transition::TransitionState::new();
 
-    // Main loop: process SDL events, run fixed-step updates, render when needed.
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit {..} => break 'running,
                 Event::KeyDown { keycode: Some(k), .. } => {
-                    // Track held keys for player input.
                     pressed_keys.insert(k);
                     
-                    // Escape closes active menus; otherwise it exits the game.
                     if k == Keycode::Escape {
                         if game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus {
                             if let Some(slot) = diamond_menu_slot { window_engine.delete_window(slot); }
@@ -132,7 +119,6 @@ pub fn run() {
                         }
                     }
                     
-                    // Confirm/Start advances the startup screens.
                     if k == Keycode::Return || k == Keycode::Space {
                         match game_state {
                             GameState::SegaLogo => { game_state = GameState::TitleScreen; frame_counter = 0; }
@@ -149,22 +135,18 @@ pub fn run() {
             }
         }
 
-        // Convert held keys into the player input bitmask.
         input_state.update_player_inputs(&pressed_keys);
 
         time_state.update();
         let mut should_render = false;
 
-        // Run fixed-step updates while accumulated time allows.
         while time_state.can_tick() {
             frame_counter += 1;
-            // Advance window animations every game tick.
             window_engine.tick();
 
             match game_state {
                 GameState::SegaLogo => {
                     screens::segalogo::update_and_draw(&mut renderer, frame_counter);
-                    // Auto-advance after the logo animation completes.
                     if frame_counter > 200 { game_state = GameState::TitleScreen; frame_counter = 0; }
                     should_render = true; 
                 }
@@ -177,8 +159,8 @@ pub fn run() {
                     should_render = true; 
                 }
                 GameState::Map => {
-                    // Open the Diamond Menu on A/C when the player is idle.
-                    if ((input_state.current_player_input & INPUT_A) != 0 || (input_state.current_player_input & INPUT_C) != 0) && !menu_open {
+                    // Открываем крест-меню по A или C
+                    if ((input_state.current_player_input & (INPUT_A | INPUT_C)) != 0) && !menu_open {
                         if !player_state.is_moving() {
                             player_state.interact(&mut map_data);
                         }
@@ -186,18 +168,18 @@ pub fn run() {
                         menu_open = true;
                         menu_anim_timer = 20;
                         menu_choice = 0;
-                        // Latch input to prevent the same press from immediately
-                        // triggering another menu transition.
                         last_input = input_state.current_player_input; 
-                        diamond_menu_slot = window_engine.create_window_with_layout(0x0C15, 18, 6, &layouts::LAYOUT_DIAMOND_MENU);
+                        
+                        // Создаем крест меню ЗА ЭКРАНОМ (снизу) и двигаем наверх
+                        diamond_menu_slot = window_engine.create_window_with_layout(0x0C20, 18, 6, &layouts::LAYOUT_DIAMOND_MENU);
+                        if let Some(slot) = diamond_menu_slot {
+                            window_engine.move_window(slot, 0x0C15, 4);
+                        }
                     }
 
                     if !player_state.is_moving() {
-                        // Attempt grid movement; this may return a warp result.
                         let move_res = player_state.try_move(input_state.current_player_input, &mut map_data, &mut events_state);
                         
-                        // Warp interception: do not teleport immediately;
-                        // start the fade-out transition first.
                         if let MoveResult::Warp(dest_map, x, y, facing) = move_res {
                             println!("WARP INITIATED! Target map: {}, X: {}, Y: {}", dest_map, x, y);
                             transition.start_warp(dest_map, x, y, facing);
@@ -205,16 +187,12 @@ pub fn run() {
                     }
                     
                     if let Some((dest_map, tx, ty, facing)) = transition.update(1.0 / 60.0) {
-                        // 1) СБРАСЫВАЕМ КРЫШИ ТОЛЬКО ЕСЛИ МЕНЯЕТСЯ КАРТА!
-                        // Если мы варпаемся внутри той же карты (dest_map == 255), 
-                        // память о крышах трогать НЕЛЬЗЯ, иначе они исчезнут навсегда.
                         if dest_map != 255 {
                             println!("Загрузка карты через варп: {}", dest_map);
                             events_state.reset(); 
                             map_data = load_map_data(dest_map);
                         }
 
-                        // 3) Игрок в тайловых координатах варпа.
                         player_state.tile_x = tx as i32;
                         player_state.tile_y = ty as i32;
                         player_state.pixel_x = player_state.tile_x * TILE_SIZE_FIXED;
@@ -236,13 +214,9 @@ pub fn run() {
                             _ => {}
                         }
 
-                        // 4) Камера: с учётом AREAS НОВОЙ КАРТЫ + снап без лерпа.
                         map_state = MapState::new_for_warp(tx as i32, ty as i32, &map_data);
-
-                        // 5) Открываем/закрываем крышу с учетом сдвига слоев.
                         events_state.update_roofs_on_warp(&mut map_data, tx as i32, ty as i32);
 
-                        // 6) Прожечь step_events (для дверей/лестниц, если они есть на точке спавна).
                         let _ = crate::game::map::events::check_tile_events(
                             &mut player_state,
                             &mut map_data,
@@ -252,7 +226,6 @@ pub fn run() {
                         );
                     }
 
-                    // Advance player animation/movement and update the camera.
                     player_state.tick(&mut map_data, &mut events_state);
 
                     for anim in &mut map_data.animations {
@@ -266,72 +239,83 @@ pub fn run() {
                     should_render = true;
                 }
                 GameState::Menu => {
-                    // B closes the Diamond Menu.
-                    if (input_state.current_player_input & INPUT_B) != 0 {
-                        game_state = GameState::Map;
-                        menu_open = false;
-                        if let Some(slot) = diamond_menu_slot {
-                            window_engine.delete_window(slot);
-                            diamond_menu_slot = None;
-                        }
+                    // БЛОКИРУЕМ ВВОД, ПОКА КРЕСТ НЕ ВЫЕХАЛ ДО КОНЦА
+                    let mut is_animating = false;
+                    if let Some(slot) = diamond_menu_slot {
+                        if window_engine.entries[slot].is_animating() { is_animating = true; }
                     }
 
-                    // Keep player animation ticking while the menu is open.
-                    player_state.tick(&mut map_data, &mut events_state);
-
-                    // React only to input changes; held keys must not repeat menu actions.
-                    let current_input = input_state.current_player_input;
-                    if current_input != last_input {
-                        // Directional input selects a Diamond Menu entry.
-                        if (current_input & INPUT_UP) != 0 { menu_choice = 0; }
-                        else if (current_input & INPUT_LEFT) != 0 { menu_choice = 1; }
-                        else if (current_input & INPUT_RIGHT) != 0 { menu_choice = 2; }
-                        else if (current_input & INPUT_DOWN) != 0 { menu_choice = 3; }
-
-                        // A/C on the first entry opens the member menu.
-                        if (current_input & (INPUT_A | INPUT_C)) != 0 && menu_choice == 0 {
+                    if !is_animating {
+                        if (input_state.current_player_input & INPUT_B) != 0 {
+                            game_state = GameState::Map;
+                            menu_open = false;
                             if let Some(slot) = diamond_menu_slot {
                                 window_engine.delete_window(slot);
                                 diamond_menu_slot = None;
                             }
-                            game_state = GameState::MemberMenu;
-                            member_menu.open(&mut window_engine, &mut vram, &mut sprite_palette);
-                            last_input = current_input;
-                        } else {
-                            last_input = current_input;
                         }
-                    } else if current_input == 0 {
-                        last_input = 0;
+
+                        let current_input = input_state.current_player_input;
+                        if current_input != last_input {
+                            if (current_input & INPUT_UP) != 0 { menu_choice = 0; }
+                            else if (current_input & INPUT_LEFT) != 0 { menu_choice = 1; }
+                            else if (current_input & INPUT_RIGHT) != 0 { menu_choice = 2; }
+                            else if (current_input & INPUT_DOWN) != 0 { menu_choice = 3; }
+
+                            if (current_input & (INPUT_A | INPUT_C)) != 0 {
+                                match menu_choice {
+                                    0 => { // MEMBER
+                                        if let Some(slot) = diamond_menu_slot {
+                                            window_engine.delete_window(slot);
+                                            diamond_menu_slot = None;
+                                        }
+                                        game_state = GameState::MemberMenu;
+                                        member_menu.open(&mut window_engine, &mut vram, &mut sprite_palette);
+                                    }
+                                    1 => println!("Открыто меню МАГИИ"),
+                                    2 => println!("Открыто меню ПРЕДМЕТОВ"),
+                                    _ => {}
+                                }
+                            }
+                            last_input = current_input;
+                        } else if current_input == 0 {
+                            last_input = 0;
+                        }
                     }
 
-                    // Loop the menu animation timer.
+                    player_state.tick(&mut map_data, &mut events_state);
                     menu_anim_timer = menu_anim_timer.saturating_sub(1);
                     if menu_anim_timer == 0 { menu_anim_timer = 20; }
                     should_render = true;
                 }
                 GameState::MemberMenu => {
+                    // БЛОКИРУЕМ ВВОД, ПОКА ОКНА НЕ ВЫЕХАЛИ
+                    let mut is_animating = false;
+                    if let Some(s) = member_menu.window_slot_portrait { if window_engine.entries[s].is_animating() { is_animating = true; } }
+                    if let Some(s) = member_menu.window_slot_summary { if window_engine.entries[s].is_animating() { is_animating = true; } }
+                    if let Some(s) = member_menu.window_slot_list { if window_engine.entries[s].is_animating() { is_animating = true; } }
+
                     let current_input = input_state.current_player_input;
 
-                    // A/C opens the status screen; B starts closing the member menu.
-                    if current_input != last_input && !member_menu.closing {
-                        if (current_input & INPUT_A) != 0 || (current_input & INPUT_C) != 0 {
-                            member_menu.start_closing_animation(&mut window_engine);
-                            game_state = GameState::MemberStatus;
-                            member_status.open(&mut window_engine, &mut vram, &mut sprite_palette);
-                            last_input = current_input;
-                        } else if (current_input & INPUT_B) != 0 {
-                            member_menu.start_closing_animation(&mut window_engine);
-                            last_input = current_input;
-                        } else {
-                            last_input = current_input;
+                    if !is_animating && !member_menu.closing {
+                        if current_input != last_input {
+                            if (current_input & (INPUT_A | INPUT_C)) != 0 {
+                                member_menu.start_closing_animation(&mut window_engine);
+                                member_menu.pending_status = true;
+                                last_input = current_input;
+                            } else if (current_input & INPUT_B) != 0 {
+                                member_menu.start_closing_animation(&mut window_engine);
+                                member_menu.pending_status = false;
+                                last_input = current_input;
+                            } else {
+                                last_input = current_input;
+                            }
+                        } else if current_input == 0 {
+                            last_input = 0;
                         }
-                    } else if current_input == 0 {
-                        last_input = 0;
                     }
 
                     if member_menu.closing {
-                        // Wait until all member-menu windows finish closing
-                        // before returning to the Diamond Menu.
                         let mut all_done = true;
                         if let Some(s) = member_menu.window_slot_portrait { if window_engine.entries[s].is_animating() { all_done = false; } }
                         if let Some(s) = member_menu.window_slot_summary { if window_engine.entries[s].is_animating() { all_done = false; } }
@@ -339,39 +323,53 @@ pub fn run() {
                         
                         if all_done && game_state == GameState::MemberMenu {
                             member_menu.close(&mut window_engine);
-                            game_state = GameState::Menu;
-                            menu_open = true;
-                            menu_anim_timer = 20;
-                            menu_choice = 0;
-                            diamond_menu_slot = window_engine.create_window_with_layout(0x0C15, 18, 6, &layouts::LAYOUT_DIAMOND_MENU);
+                            
+                            if member_menu.pending_status {
+                                member_menu.pending_status = false;
+                                game_state = GameState::MemberStatus;
+                                member_status.open(&mut window_engine, &mut vram, &mut sprite_palette);
+                            } else {
+                                game_state = GameState::Menu;
+                                menu_open = true;
+                                menu_anim_timer = 20;
+                                menu_choice = 0;
+                                diamond_menu_slot = window_engine.create_window_with_layout(0x0C20, 18, 6, &layouts::LAYOUT_DIAMOND_MENU);
+                                if let Some(slot) = diamond_menu_slot {
+                                    window_engine.move_window(slot, 0x0C15, 4);
+                                }
+                            }
                             last_input = current_input;
                         }
                     }
 
-                    // Do not draw member-menu content while its windows are closing.
                     if !member_menu.closing {
                         member_menu.draw(&mut window_engine, &force_members);
                     }
                     should_render = true;
                 }
                 GameState::MemberStatus => {
+                    let mut is_animating = false;
+                    if let Some(s) = member_status.window_slot_portrait { if window_engine.entries[s].is_animating() { is_animating = true; } }
+                    if let Some(s) = member_status.window_slot_status { if window_engine.entries[s].is_animating() { is_animating = true; } }
+                    if let Some(s) = member_status.window_slot_kd { if window_engine.entries[s].is_animating() { is_animating = true; } }
+                    if let Some(s) = member_status.window_slot_gold { if window_engine.entries[s].is_animating() { is_animating = true; } }
+
                     let current_input = input_state.current_player_input;
 
-                    // Any action button starts closing the status screen.
-                    if current_input != last_input && !member_status.closing {
-                        if (current_input & INPUT_A) != 0 || (current_input & INPUT_B) != 0 || (current_input & INPUT_C) != 0 {
-                            member_status.start_closing_animation(&mut window_engine);
-                            last_input = current_input;
-                        } else {
-                            last_input = current_input;
+                    if !is_animating && !member_status.closing {
+                        if current_input != last_input {
+                            if (current_input & (INPUT_A | INPUT_B | INPUT_C)) != 0 {
+                                member_status.start_closing_animation(&mut window_engine);
+                                last_input = current_input;
+                            } else {
+                                last_input = current_input;
+                            }
+                        } else if current_input == 0 {
+                            last_input = 0;
                         }
-                    } else if current_input == 0 {
-                        last_input = 0;
                     }
 
                     if member_status.closing {
-                        // Wait until all status windows finish closing,
-                        // then reopen the member menu.
                         let mut all_done = true;
                         if let Some(s) = member_status.window_slot_portrait { if window_engine.entries[s].is_animating() { all_done = false; } }
                         if let Some(s) = member_status.window_slot_status { if window_engine.entries[s].is_animating() { all_done = false; } }
@@ -385,11 +383,9 @@ pub fn run() {
                             last_input = current_input;
                         }
                     } else {
-                        // Animate blinking text/selection while the screen is active.
                         member_status.tick_blink(&mut window_engine);
                     }
 
-                    // Do not draw status content while its windows are closing.
                     if !member_status.closing {
                         member_status.draw(&mut window_engine, &force_members[0]);
                     }
@@ -399,13 +395,8 @@ pub fn run() {
         }
 
         if should_render {
-            // IMPORTANT: draw the map and UI windows only for gameplay states.
-            // SegaLogo, Title, and Witch screens render themselves inside their own functions.
             if game_state == GameState::Map || game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus {
-                // Lock the texture to get direct pixel-buffer access.
                 renderer.texture.with_lock(None, |buffer, pitch| {
-                    // Layer order: lower map layer, player, upper map layer,
-                    // UI windows, menu text, sprite overlays, transition fade.
                     map::draw::draw_map(buffer, pitch, &map_data, &map_state, 0);
                     player::draw_player(buffer, pitch, &player_sprites, &player_state, map_state.scroll_x - 32, map_state.scroll_y, &sprite_palette);
                     map::draw::draw_map(buffer, pitch, &map_data, &map_state, 1);
@@ -424,7 +415,6 @@ pub fn run() {
                         member_status.draw_sprite_overlay(buffer, pitch, &vram, &window_engine, &sprite_palette);
                     }
 
-                    // Draw the transition fade on top of the entire frame.
                     transition.draw(buffer, pitch);
                 }).unwrap();
             }
@@ -432,7 +422,6 @@ pub fn run() {
             renderer.present();
         }
         
-        // Yield CPU briefly to avoid a busy-wait loop.
         std::thread::sleep(Duration::from_millis(1));
     }
 }

@@ -199,6 +199,6 @@ pub fn interact(player: &mut PlayerState, map: &mut MapData) {
         println!("🎁 ВЫ НАШЛИ ПРЕДМЕТ! ID: {}", item.item_id);
         map.layout[target_idx].flags = 0x0000; 
     } else {
-        println!("Тут ничего нет.");
+
     }
 }

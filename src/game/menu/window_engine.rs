@@ -226,10 +226,10 @@ impl WindowEngine {
                     };
 
                     let is_selected = match menu_choice {
-                        0 => tile_idx >= 0x5C0 && tile_idx < 0x5C9,
-                        1 => tile_idx >= 0x5D2 && tile_idx < 0x5DB,
-                        2 => tile_idx >= 0x5E4 && tile_idx < 0x5ED,
-                        3 => tile_idx >= 0x5F6 && tile_idx < 0x5FF,
+                        0 => tile_idx >= 0x0300 && tile_idx < 0x0309,
+                        1 => tile_idx >= 0x0312 && tile_idx < 0x031B,
+                        2 => tile_idx >= 0x0324 && tile_idx < 0x032D,
+                        3 => tile_idx >= 0x0336 && tile_idx < 0x033F,
                         _ => false,
                     };
 
@@ -237,7 +237,11 @@ impl WindowEngine {
 
                     if let Some(tile) = vram.tile(tile_idx) {
                         let tx = x_pos + c * 8;
-                        let ty = y_pos + r * 8;
+                        let mut ty = y_pos + r * 8;
+
+                        if tile_idx >= 0x0312 && tile_idx <= 0x032D {
+                            ty += 4;
+                        }
 
                         for py in 0..8 {
                             for px in 0..8 {
