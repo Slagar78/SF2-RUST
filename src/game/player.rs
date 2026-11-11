@@ -256,7 +256,9 @@ impl PlayerState {
         self.tile_x = nx; self.tile_y = ny;
         self.target_x = nx * TILE_SIZE_FIXED; self.target_y = ny * TILE_SIZE_FIXED;
         self.travel_x = dx * TILE_SIZE_FIXED; self.travel_y = dy * TILE_SIZE_FIXED;
-        self.velocity_x = dx * SPEED; self.velocity_y = dy * SPEED;
+        // Умножаем скорость на множитель (12/16 = 0.75)
+        self.velocity_x = dx * SPEED; 
+        self.velocity_y = dy * SPEED;
 
         self.on_stairs = (block_flags & 0xC000) == 0x4000 || (block_flags & 0xC000) == 0x8000;
 

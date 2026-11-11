@@ -194,6 +194,8 @@ pub fn run() {
                     // 2. Движение игрока (БЛОКИРУЕТСЯ, пока ждем меню)
                     if !menu_open && !pending_menu_open {
                         if !player_state.is_moving() {
+                            
+                            // Запускаем шаг (скорость всегда нормальная)
                             let move_res = player_state.try_move(input_state.current_player_input, &mut map_data, &mut events_state);
                             
                             if let MoveResult::Warp(dest_map, x, y, facing) = move_res {
@@ -310,7 +312,7 @@ pub fn run() {
                         // Если выбор изменился, сбрасываем таймер, чтобы подсветка загорелась сразу
                         if choice_changed {
                             menu_anim_timer = 20; 
-                            menu_anim_delay = 18; // Задержка 0.3 сек (18 кадров)
+                            menu_anim_delay = 6; // Задержка
                         }
 
                         let confirm_pressed = (current_input & (INPUT_A | INPUT_C)) != 0;
