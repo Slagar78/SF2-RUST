@@ -256,31 +256,33 @@ pub fn run() {
                         }
 
                         let current_input = input_state.current_player_input;
-                        if current_input != last_input {
-                            if (current_input & INPUT_UP) != 0 { menu_choice = 0; }
-                            else if (current_input & INPUT_LEFT) != 0 { menu_choice = 1; }
-                            else if (current_input & INPUT_RIGHT) != 0 { menu_choice = 2; }
-                            else if (current_input & INPUT_DOWN) != 0 { menu_choice = 3; }
 
-                            if (current_input & (INPUT_A | INPUT_C)) != 0 {
-                                match menu_choice {
-                                    0 => { // MEMBER
-                                        if let Some(slot) = diamond_menu_slot {
-                                            window_engine.delete_window(slot);
-                                            diamond_menu_slot = None;
-                                        }
-                                        game_state = GameState::MemberMenu;
-                                        member_menu.open(&mut window_engine, &mut vram, &mut sprite_palette);
+                        // 1. Мгновенное переключение стрелок (без задержек)
+                        if (current_input & INPUT_UP) != 0 { menu_choice = 0; }
+                        else if (current_input & INPUT_LEFT) != 0 { menu_choice = 1; }
+                        else if (current_input & INPUT_RIGHT) != 0 { menu_choice = 2; }
+                        else if (current_input & INPUT_DOWN) != 0 { menu_choice = 3; }
+
+                        // 2. Нажатие A или C (срабатывает только ОДИН раз при нажатии)
+                        let confirm_pressed = (current_input & (INPUT_A | INPUT_C)) != 0;
+                        let confirm_was_pressed = (last_input & (INPUT_A | INPUT_C)) != 0;
+
+                        if confirm_pressed && !confirm_was_pressed {
+                            match menu_choice {
+                                0 => { // MEMBER
+                                    if let Some(slot) = diamond_menu_slot {
+                                        window_engine.delete_window(slot);
+                                        diamond_menu_slot = None;
                                     }
-                                    1 => println!("Открыто меню МАГИИ"),
-                                    2 => println!("Открыто меню ПРЕДМЕТОВ"),
-                                    _ => {}
+                                    game_state = GameState::MemberMenu;
+                                    member_menu.open(&mut window_engine, &mut vram, &mut sprite_palette);
                                 }
+                                1 => println!("Открыто меню МАГИИ"),
+                                2 => println!("Открыто меню ПРЕДМЕТОВ"),
+                                _ => {}
                             }
-                            last_input = current_input;
-                        } else if current_input == 0 {
-                            last_input = 0;
                         }
+                        last_input = current_input;
                     }
 
                     player_state.tick(&mut map_data, &mut events_state);

@@ -239,9 +239,10 @@ impl WindowEngine {
                         let tx = x_pos + c * 8;
                         let mut ty = y_pos + r * 8;
 
-                        if tile_idx >= 0x0312 && tile_idx <= 0x032D {
-                            ty += 4;
-                        }
+                      // Захватываем левую стрелку (0x312-0x323) и правую (0x324-0x335)
+                      if tile_idx >= 0x0312 && tile_idx <= 0x0335 {
+                          ty += 4;
+                      }
 
                         for py in 0..8 {
                             for px in 0..8 {
