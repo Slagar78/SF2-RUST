@@ -12,7 +12,7 @@ fn put_pixel(buf: &mut [u8], pitch: usize, x: i32, y: i32, color: Color) {
     buf[offset + 3] = 255;
 }
 
-pub fn draw_map(buf: &mut [u8], pitch: usize, map_data: &MapData, state: &MapState, layer: u8) {
+pub fn draw_map(buf: &mut [u8], pitch: usize, map_data: &MapData, state: &MapState, layer: u8, player_px_x: i32, player_px_y: i32) {
     // Очищаем экран черным при отрисовке нижнего слоя
     if layer == 0 {
         for y in 0..224 {
@@ -25,13 +25,13 @@ pub fn draw_map(buf: &mut [u8], pitch: usize, map_data: &MapData, state: &MapSta
         }
     }
 
-    let scroll_x = state.scroll_x;
-    let scroll_y = state.scroll_y;
+    let scroll_x = state.view_x;
+    let scroll_y = state.view_y;
     let x_offset = 32;
 
-    // Находим текущую зону игрока
-    let tile_x = (state.player_x / 24) as u8;
-    let tile_y = (state.player_y / 24) as u8;
+    // Находим текущую зону игрока (используем переданные координаты)
+    let tile_x = (player_px_x / 24) as u8;
+    let tile_y = (player_px_y / 24) as u8;
     
     let mut active_area = MapArea { 
         start_x: 0, start_y: 0, 
@@ -46,13 +46,12 @@ pub fn draw_map(buf: &mut [u8], pitch: usize, map_data: &MapData, state: &MapSta
         }
     }
 
-    // ВАЖНО: Перебираем ВСЮ карту 64x64, чтобы не было черных дыр на краях экрана!
+    // ВАЖНО: Перебираем ВСЮ карту 64x64
     for by in 0..64 {
         for bx in 0..64 {
             let block = &map_data.layout[by * 64 + bx];
             if block.block_index == 0 { continue; }
 
-            // Определяем, относится ли этот блок к слою крыш (сдвигаем его) или к основному слою
             let is_secondary = bx >= active_area.scnd_x as usize && by >= active_area.scnd_y as usize;
 
             let draw_x = if is_secondary { bx - active_area.scnd_x as usize } else { bx };

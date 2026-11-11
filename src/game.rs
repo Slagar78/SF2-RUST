@@ -27,10 +27,8 @@ use crate::game::menu::member_menu::MemberMenuState;
 use crate::game::menu::member_status_menu::MemberStatusState;
 use crate::game::ally_parser::load_force_members;
 
-// Genesis 3-bit color levels expanded to 8-bit RGB values.
 const CRAM_VALUE_MAP: [u8; 8] = [0, 52, 87, 116, 144, 172, 206, 255];
 
-// Decode a Genesis/Mega Drive color word stored as two bytes into SDL RGB.
 fn decode_genesis_color(first: u8, second: u8) -> sdl3::pixels::Color {
     let word = ((first as u16) << 8) | (second as u16);
     let r3 = ((word >> 1) & 0x07) as usize;
@@ -44,13 +42,11 @@ pub fn run() {
     let mut renderer = Renderer::new(&sdl_context);
     let mut event_pump = sdl_context.event_pump().unwrap();
 
-    // Load the base VRAM tile set required by the renderer.
     let mut vram = base_tiles::load_base_tiles().expect("Нет basetiles.bin");
 
     if let Ok(raw_menu_tiles) = std::fs::read("src/data/graphics/tech/menus/mainmenutiles.bin") {
         let d = decompressor::decompress(&raw_menu_tiles).unwrap_or(raw_menu_tiles);
         if d.len() >= 3456 {
-            // Используем VRAM_DIAMOND_MENU (0x38000) + смещения
             let base = crate::engine::base_tiles::VRAM_DIAMOND_MENU;
             vram.write_bytes(base, &d[2880..3456]).expect("Ошибка Up");
             vram.write_bytes(base + 0x240, &d[576..1152]).expect("Ошибка Left");
@@ -63,7 +59,7 @@ pub fn run() {
     let mut events_state = MapEventsState::new();
     
     let mut player_state = PlayerState::new(56, 3);
-    let mut map_state = MapState::new(player_state.pixel_x / 16, player_state.pixel_y / 16);
+    let mut map_state = MapState::new(player_state.pixel_x / 16, player_state.pixel_y / 16, &map_data);
     
     let player_sprites = player::load_player_sprites();
     
@@ -87,6 +83,7 @@ pub fn run() {
 
     let mut window_engine = WindowEngine::new();
     let mut menu_open = false;
+    let mut pending_menu_open = false;
     let mut menu_anim_timer: u16 = 20;
     let mut menu_choice: usize = 0;
     let mut last_input: u8 = 0;
@@ -159,33 +156,27 @@ pub fn run() {
                     should_render = true; 
                 }
                 GameState::Map => {
-                    // Открываем крест-меню по A или C
-                    if ((input_state.current_player_input & (INPUT_A | INPUT_C)) != 0) && !menu_open {
-                        if !player_state.is_moving() {
-                            player_state.interact(&mut map_data);
-                        }
-                        game_state = GameState::Menu;
-                        menu_open = true;
-                        menu_anim_timer = 20;
-                        menu_choice = 0;
-                        last_input = input_state.current_player_input; 
-                        
-                        // Создаем крест меню ЗА ЭКРАНОМ (снизу) и двигаем наверх
-                        diamond_menu_slot = window_engine.create_window_with_layout(0x0C20, 18, 6, &layouts::LAYOUT_DIAMOND_MENU);
-                        if let Some(slot) = diamond_menu_slot {
-                            window_engine.move_window(slot, 0x0C15, 4);
-                        }
+                    // 1. Ловим нажатие кнопки (только в момент нажатия)
+                    let confirm_pressed = (input_state.current_player_input & (INPUT_A | INPUT_C)) != 0;
+                    let confirm_was_pressed = (last_input & (INPUT_A | INPUT_C)) != 0;
+
+                    if confirm_pressed && !confirm_was_pressed && !menu_open {
+                        pending_menu_open = true; // Ставим в очередь
                     }
 
-                    if !player_state.is_moving() {
-                        let move_res = player_state.try_move(input_state.current_player_input, &mut map_data, &mut events_state);
-                        
-                        if let MoveResult::Warp(dest_map, x, y, facing) = move_res {
-                            println!("WARP INITIATED! Target map: {}, X: {}, Y: {}", dest_map, x, y);
-                            transition.start_warp(dest_map, x, y, facing);
+                    // 2. Движение игрока (блокируем, если ждем меню)
+                    if !menu_open && !pending_menu_open {
+                        if !player_state.is_moving() {
+                            let move_res = player_state.try_move(input_state.current_player_input, &mut map_data, &mut events_state);
+                            
+                            if let MoveResult::Warp(dest_map, x, y, facing) = move_res {
+                                println!("WARP INITIATED! Target map: {}, X: {}, Y: {}", dest_map, x, y);
+                                transition.start_warp(dest_map, x, y, facing);
+                            }
                         }
                     }
                     
+                    // 3. Логика варпов
                     if let Some((dest_map, tx, ty, facing)) = transition.update(1.0 / 60.0) {
                         if dest_map != 255 {
                             println!("Загрузка карты через варп: {}", dest_map);
@@ -226,16 +217,40 @@ pub fn run() {
                         );
                     }
 
+                    // 4. Обновляем игрока и камеру (ЭТО ДОЛЖНО БЫТЬ ДО ОТКРЫТИЯ МЕНЮ)
                     player_state.tick(&mut map_data, &mut events_state);
 
                     for anim in &mut map_data.animations {
                         anim.update(&mut map_data.tilesets);
                     }
 
-                    map_state.player_x = (player_state.pixel_x / 16) + 12;
-                    map_state.player_y = (player_state.pixel_y / 16) + 12;
-                    map_state.update_target(&map_data);
+                    let target_x = player_state.pixel_x / 16;
+                    let target_y = player_state.pixel_y / 16;
+                    map_state.update_view(target_x, target_y, &map_data);
                     map_state.tick();
+
+                    // 5. ТЕПЕРЬ ПРОВЕРЯЕМ: можно ли открыть меню?
+                    if pending_menu_open && !menu_open {
+                        if !player_state.is_moving() && map_state.can_open_menu(target_x, target_y) {
+                            pending_menu_open = false; // Сбрасываем очередь
+                            
+                            player_state.interact(&mut map_data);
+                            
+                            game_state = GameState::Menu;
+                            menu_open = true;
+                            menu_anim_timer = 20;
+                            menu_choice = 0;
+                            
+                            // Создаем крест меню ЗА ЭКРАНОМ (снизу) и двигаем наверх
+                            diamond_menu_slot = window_engine.create_window_with_layout(0x0C20, 18, 6, &layouts::LAYOUT_DIAMOND_MENU);
+                            if let Some(slot) = diamond_menu_slot {
+                                window_engine.move_window(slot, 0x0C15, 4);
+                            }
+                        }
+                    }
+
+                    // 6. Обновляем last_input в самом конце!
+                    last_input = input_state.current_player_input;
                     should_render = true;
                 }
                 GameState::Menu => {
@@ -257,13 +272,11 @@ pub fn run() {
 
                         let current_input = input_state.current_player_input;
 
-                        // 1. Мгновенное переключение стрелок (без задержек)
                         if (current_input & INPUT_UP) != 0 { menu_choice = 0; }
                         else if (current_input & INPUT_LEFT) != 0 { menu_choice = 1; }
                         else if (current_input & INPUT_RIGHT) != 0 { menu_choice = 2; }
                         else if (current_input & INPUT_DOWN) != 0 { menu_choice = 3; }
 
-                        // 2. Нажатие A или C (срабатывает только ОДИН раз при нажатии)
                         let confirm_pressed = (current_input & (INPUT_A | INPUT_C)) != 0;
                         let confirm_was_pressed = (last_input & (INPUT_A | INPUT_C)) != 0;
 
@@ -291,7 +304,6 @@ pub fn run() {
                     should_render = true;
                 }
                 GameState::MemberMenu => {
-                    // БЛОКИРУЕМ ВВОД, ПОКА ОКНА НЕ ВЫЕХАЛИ
                     let mut is_animating = false;
                     if let Some(s) = member_menu.window_slot_portrait { if window_engine.entries[s].is_animating() { is_animating = true; } }
                     if let Some(s) = member_menu.window_slot_summary { if window_engine.entries[s].is_animating() { is_animating = true; } }
@@ -399,9 +411,13 @@ pub fn run() {
         if should_render {
             if game_state == GameState::Map || game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus {
                 renderer.texture.with_lock(None, |buffer, pitch| {
-                    map::draw::draw_map(buffer, pitch, &map_data, &map_state, 0);
-                    player::draw_player(buffer, pitch, &player_sprites, &player_state, map_state.scroll_x - 32, map_state.scroll_y, &sprite_palette);
-                    map::draw::draw_map(buffer, pitch, &map_data, &map_state, 1);
+
+                    let p_x = player_state.pixel_x / 16;
+                    let p_y = player_state.pixel_y / 16;
+
+                    map::draw::draw_map(buffer, pitch, &map_data, &map_state, 0, p_x, p_y);
+                    player::draw_player(buffer, pitch, &player_sprites, &player_state, map_state.view_x - 32, map_state.view_y, &sprite_palette);
+                    map::draw::draw_map(buffer, pitch, &map_data, &map_state, 1, p_x, p_y);
                     
                     if game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus {
                         window_engine.draw_windows(buffer, pitch, &vram, &sprite_palette, menu_anim_timer, menu_choice, 32);
