@@ -20,7 +20,8 @@ pub struct EyeEntry {
     pub alt_y: u8,
 }
 
-pub struct PortraitData {
+#[derive(Clone)]
+pub struct PortraitData  {
     pub tiles: Vec<u8>,
     pub palette: Vec<Color>,
     pub eyes: Vec<EyeEntry>,

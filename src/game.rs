@@ -25,6 +25,7 @@ use crate::game::menu::window_engine::WindowEngine;
 use crate::game::menu::layouts;
 use crate::game::menu::member_menu::MemberMenuState;
 use crate::game::menu::member_status_menu::MemberStatusState;
+use crate::game::menu::magic_menu::MagicMenuState;
 use crate::game::ally_parser::load_force_members;
 
 const CRAM_VALUE_MAP: [u8; 8] = [0, 52, 87, 116, 144, 172, 206, 255];
@@ -90,8 +91,10 @@ pub fn run() {
     
     let mut diamond_menu_slot: Option<usize> = None;
 
+    let bowie_portrait = crate::game::menu::portrait::load_portrait(0);
     let mut member_menu = MemberMenuState::new();
     let mut member_status = MemberStatusState::new();
+    let mut magic_menu = MagicMenuState::new();
     let force_members = load_force_members();
     let _all_items = item_parser::load_items();
 
@@ -105,10 +108,11 @@ pub fn run() {
                     pressed_keys.insert(k);
                     
                     if k == Keycode::Escape {
-                        if game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus {
+                        if game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus || game_state == GameState::MagicMenu {
                             if let Some(slot) = diamond_menu_slot { window_engine.delete_window(slot); }
                             member_menu.close(&mut window_engine);
                             member_status.close(&mut window_engine);
+                            magic_menu.close(&mut window_engine);
                             game_state = GameState::Map;
                             menu_open = false;
                         } else {
@@ -155,16 +159,23 @@ pub fn run() {
                     screens::witch::update_and_draw(&mut renderer, &vram, &input_state);
                     should_render = true; 
                 }
+
+
                 GameState::Map => {
-                    // 1. Ловим нажатие кнопки (только в момент нажатия)
+                    // 1. Ловим нажатие A/C
                     let confirm_pressed = (input_state.current_player_input & (INPUT_A | INPUT_C)) != 0;
                     let confirm_was_pressed = (last_input & (INPUT_A | INPUT_C)) != 0;
 
-                    if confirm_pressed && !confirm_was_pressed && !menu_open {
-                        pending_menu_open = true; // Ставим в очередь
+                    if confirm_pressed && !confirm_was_pressed && !menu_open && !pending_menu_open {
+                        pending_menu_open = true; // Ставим в очередь ожидания
                     }
 
-                    // 2. Движение игрока (блокируем, если ждем меню)
+                    // Отмена ожидания по кнопке B
+                    if (input_state.current_player_input & INPUT_B) != 0 {
+                        pending_menu_open = false;
+                    }
+
+                    // 2. Движение игрока (БЛОКИРУЕТСЯ, пока ждем меню)
                     if !menu_open && !pending_menu_open {
                         if !player_state.is_moving() {
                             let move_res = player_state.try_move(input_state.current_player_input, &mut map_data, &mut events_state);
@@ -217,7 +228,7 @@ pub fn run() {
                         );
                     }
 
-                    // 4. Обновляем игрока и камеру (ЭТО ДОЛЖНО БЫТЬ ДО ОТКРЫТИЯ МЕНЮ)
+                    // 4. Обновляем игрока и камеру
                     player_state.tick(&mut map_data, &mut events_state);
 
                     for anim in &mut map_data.animations {
@@ -229,10 +240,10 @@ pub fn run() {
                     map_state.update_view(target_x, target_y, &map_data);
                     map_state.tick();
 
-                    // 5. ТЕПЕРЬ ПРОВЕРЯЕМ: можно ли открыть меню?
+                    // 5. Открываем меню, ТОЛЬКО когда всё остановилось
                     if pending_menu_open && !menu_open {
-                        if !player_state.is_moving() && map_state.can_open_menu(target_x, target_y) {
-                            pending_menu_open = false; // Сбрасываем очередь
+                        if !player_state.is_moving() && map_state.can_open_menu() {
+                            pending_menu_open = false; 
                             
                             player_state.interact(&mut map_data);
                             
@@ -241,7 +252,6 @@ pub fn run() {
                             menu_anim_timer = 20;
                             menu_choice = 0;
                             
-                            // Создаем крест меню ЗА ЭКРАНОМ (снизу) и двигаем наверх
                             diamond_menu_slot = window_engine.create_window_with_layout(0x0C20, 18, 6, &layouts::LAYOUT_DIAMOND_MENU);
                             if let Some(slot) = diamond_menu_slot {
                                 window_engine.move_window(slot, 0x0C15, 4);
@@ -249,12 +259,12 @@ pub fn run() {
                         }
                     }
 
-                    // 6. Обновляем last_input в самом конце!
+                    // 6. Обновляем last_input
                     last_input = input_state.current_player_input;
                     should_render = true;
                 }
+
                 GameState::Menu => {
-                    // БЛОКИРУЕМ ВВОД, ПОКА КРЕСТ НЕ ВЫЕХАЛ ДО КОНЦА
                     let mut is_animating = false;
                     if let Some(slot) = diamond_menu_slot {
                         if window_engine.entries[slot].is_animating() { is_animating = true; }
@@ -268,6 +278,9 @@ pub fn run() {
                                 window_engine.delete_window(slot);
                                 diamond_menu_slot = None;
                             }
+                            // ДОБАВЛЕНО: Блокируем игрока на 10 кадров после выхода по B
+                            last_input = input_state.current_player_input;
+                            player_state.input_delayer = 10; 
                         }
 
                         let current_input = input_state.current_player_input;
@@ -287,14 +300,26 @@ pub fn run() {
                                         window_engine.delete_window(slot);
                                         diamond_menu_slot = None;
                                     }
+                                    // ДОБАВЛЕНО: Блокируем игрока при входе в меню персонажей
+                                    player_state.input_delayer = 10;
                                     game_state = GameState::MemberMenu;
                                     member_menu.open(&mut window_engine, &mut vram, &mut sprite_palette);
                                 }
-                                1 => println!("Открыто меню МАГИИ"),
+                                1 => { // MAGIC
+                                    if let Some(slot) = diamond_menu_slot {
+                                        window_engine.delete_window(slot);
+                                        diamond_menu_slot = None;
+                                    }
+                                    // ДОБАВЛЕНО: Блокируем игрока при входе в меню магии
+                                    player_state.input_delayer = 10;
+                                    game_state = GameState::MagicMenu;
+                                    magic_menu.open(&mut window_engine, &mut vram, &mut sprite_palette, bowie_portrait.clone());
+                                }
                                 2 => println!("Открыто меню ПРЕДМЕТОВ"),
                                 _ => {}
                             }
                         }
+
                         last_input = current_input;
                     }
 
@@ -303,6 +328,7 @@ pub fn run() {
                     if menu_anim_timer == 0 { menu_anim_timer = 20; }
                     should_render = true;
                 }
+
                 GameState::MemberMenu => {
                     let mut is_animating = false;
                     if let Some(s) = member_menu.window_slot_portrait { if window_engine.entries[s].is_animating() { is_animating = true; } }
@@ -405,11 +431,63 @@ pub fn run() {
                     }
                     should_render = true;
                 }
+                GameState::MagicMenu => {
+                    let mut is_animating = false;
+                    if let Some(s) = magic_menu.window_slot_portrait { if window_engine.entries[s].is_animating() { is_animating = true; } }
+                    if let Some(s) = magic_menu.window_slot_summary { if window_engine.entries[s].is_animating() { is_animating = true; } }
+                    if let Some(s) = magic_menu.window_slot_list { if window_engine.entries[s].is_animating() { is_animating = true; } }
+
+                    let current_input = input_state.current_player_input;
+
+                    if !is_animating && !magic_menu.closing {
+                        if (current_input & INPUT_B) != 0 {
+                            magic_menu.start_closing_animation(&mut window_engine);
+                            last_input = current_input;
+                        } else if (current_input & (INPUT_A | INPUT_C)) != 0 && (last_input & (INPUT_A | INPUT_C)) == 0 {
+                            magic_menu.start_closing_animation(&mut window_engine);
+                            last_input = current_input;
+                        } else {
+                            if current_input != last_input {
+                                if (current_input & INPUT_UP) != 0 && magic_menu.selected_member > 0 {
+                                    magic_menu.selected_member -= 1;
+                                }
+                                else if (current_input & INPUT_DOWN) != 0 && magic_menu.selected_member < force_members.len() - 1 {
+                                    magic_menu.selected_member += 1;
+                                }
+                            }
+                            last_input = current_input;
+                        }
+                    }
+
+                    if magic_menu.closing {
+                        let mut all_done = true;
+                        if let Some(s) = magic_menu.window_slot_portrait { if window_engine.entries[s].is_animating() { all_done = false; } }
+                        if let Some(s) = magic_menu.window_slot_summary { if window_engine.entries[s].is_animating() { all_done = false; } }
+                        if let Some(s) = magic_menu.window_slot_list { if window_engine.entries[s].is_animating() { all_done = false; } }
+
+                        if all_done {
+                            magic_menu.close(&mut window_engine);
+                            game_state = GameState::Menu;
+                            menu_open = true;
+                            menu_anim_timer = 20;
+                            menu_choice = 1;
+                            diamond_menu_slot = window_engine.create_window_with_layout(0x0C20, 18, 6, &layouts::LAYOUT_DIAMOND_MENU);
+                            if let Some(slot) = diamond_menu_slot {
+                                window_engine.move_window(slot, 0x0C15, 4);
+                            }
+                        }
+                    }
+
+                    if !magic_menu.closing {
+                        magic_menu.draw(&mut window_engine, &force_members);
+                    }
+                    should_render = true;
+                }
             }
         }
 
         if should_render {
-            if game_state == GameState::Map || game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus {
+            if game_state == GameState::Map || game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus || game_state == GameState::MagicMenu {
                 renderer.texture.with_lock(None, |buffer, pitch| {
 
                     let p_x = player_state.pixel_x / 16;
@@ -419,8 +497,16 @@ pub fn run() {
                     player::draw_player(buffer, pitch, &player_sprites, &player_state, map_state.view_x - 32, map_state.view_y, &sprite_palette);
                     map::draw::draw_map(buffer, pitch, &map_data, &map_state, 1, p_x, p_y);
                     
-                    if game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus {
+                    if game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus || game_state == GameState::MagicMenu {
                         window_engine.draw_windows(buffer, pitch, &vram, &sprite_palette, menu_anim_timer, menu_choice, 32);
+                    }
+
+                    // Рамки выделения для меню магии и меню персонажей
+                    if game_state == GameState::MagicMenu && !magic_menu.closing {
+                        magic_menu.draw_highlight(buffer, pitch, &window_engine, frame_counter);
+                    }
+                    if game_state == GameState::MemberMenu && !member_menu.closing {
+                        member_menu.draw_highlight(buffer, pitch, &window_engine, frame_counter);
                     }
 
                     if game_state == GameState::Menu {

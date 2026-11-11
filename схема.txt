@@ -9,17 +9,16 @@ C:\my_project\SF2-RUST\
 │   ├── engine\
 │   │   ├── input.rs                <-- Input handling (A, B, C, directional pad)
 │   │   ├── decompressor.rs         <-- STACK and Basic decompressors
-│   │   ├── base_tiles.rs           <-- VRAM emulation and basetiles.bin loading
+│   │   ├── base_tiles.rs           <-- VRAM emulation, basetiles.bin loading, VRAM map constants
 │   │   ├── time.rs                 <-- Timer and fixed-timestep game loop
-│   │   ├── renderer.rs             <-- SDL3 wrapper (window, textures, pixel buffer)
-│   │   └── vram_map.rs             <-- NEW: Константы адресов VRAM (чтобы избежать коллизий)
+│   │   └── renderer.rs             <-- SDL3 wrapper (window, textures, pixel buffer)
 │   │
 │   ├── game.rs                     <-- Main game loop and game-state switching
 │   ├── game\
-│   │   ├── state.rs                <-- GameState enum (SegaLogo, Map, Menu, MemberMenu, MemberStatus)
+│   │   ├── state.rs                <-- GameState enum (SegaLogo, Map, Menu, MemberMenu, MemberStatus, MagicMenu)
 │   │   ├── player.rs               <-- Bowie movement (grid, collisions, turn-in-place, ladders, warps)
 │   │   ├── ally_parser.rs          <-- Parser for .asm data (names, classes, stats, mapsprite)
-│   │   ├── item_parser.rs          <-- NEW: Parser for itemnames.asm and itemdefs.asm
+│   │   ├── item_parser.rs          <-- Parser for itemnames.asm and itemdefs.asm
 │   │   ├── transition.rs           <-- Screen fade logic for warps (fade out/in)
 │   │   │
 │   │   ├── map.rs                  <-- Map module root: connects map submodules
@@ -27,16 +26,17 @@ C:\my_project\SF2-RUST\
 │   │   │   ├── finder.rs           <-- Parser for entries.asm, map paths, and 2-areas.asm
 │   │   │   ├── loader.rs           <-- Map loading (blocks, layout, tilesets, zones, warps)
 │   │   │   ├── anim.rs             <-- Universal 32-tile animation (water, torches, etc.)
-│   │   │   ├── camera.rs           <-- Camera with dead zones (H32, scrolling)
+│   │   │   ├── camera.rs           <-- Camera with dead zones, subpixel scrolling, can_open_menu()
 │   │   │   ├── draw.rs             <-- Renders two map layers (H32 clipping, anim tile replacement)
 │   │   │   └── events.rs           <-- Event handling (warps, doors, roofs, items)
 │   │   │
 │   │   ├── menu.rs                 <-- Menu module root: connects menu submodules
 │   │   ├── menu\
-│   │   │   ├── window_engine.rs    <-- Window engine (CreateWindow, tilemaps, animation)
+│   │   │   ├── window_engine.rs    <-- Window engine (CreateWindow, tilemaps, animation, backgrounds)
 │   │   │   ├── layouts.rs          <-- Window layouts (Diamond Menu, portrait from ASM)
 │   │   │   ├── diamond_menu.rs     <-- Diamond Menu logic and rendering (cross-shaped menu)
-│   │   │   ├── member_menu.rs      <-- Party list screen (portrait, summary, list)
+│   │   │   ├── member_menu.rs      <-- Party list screen (portrait, summary, list, red highlight)
+│   │   │   ├── magic_menu.rs       <-- NEW: Magic menu (spell list, Egress/Empty icons, red highlight)
 │   │   │   ├── member_status_menu.rs <-- Status screen (ATT, DEF, KILLS, GOLD, blinking)
 │   │   │   ├── portrait.rs         <-- Portrait loading/parsing (Portrait00.bin)
 │   │   │   └── draw_menu.rs        <-- Text rendering in Diamond Menu (MEMBER, MAGIC)

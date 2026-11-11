@@ -124,19 +124,11 @@ impl MapState {
         }
     }
 
-    pub fn can_open_menu(&self, target_x: i32, target_y: i32) -> bool {
-        // Если камера прямо сейчас едет — меню открывать нельзя
-        if self.is_scrolling { return false; }
-
-        let sx = target_x - self.view_x;
-        let sy = target_y - self.view_y;
-
-        // Камера НЕ поедет в следующем кадре, ТОЛЬКО если игрок 
-        // находится внутри мертвой зоны (включительно).
-        if sx >= DZ_LEFT && sx <= DZ_RIGHT && sy >= DZ_TOP && sy <= DZ_BOTTOM {
-            return true;
-        }
-        false
+    // 
+    pub fn can_open_menu(&self) -> bool {
+        !self.is_scrolling 
+            && self.view_x_fixed == self.target_view_x * 16 
+            && self.view_y_fixed == self.target_view_y * 16
     }
 
     pub fn tick(&mut self) {

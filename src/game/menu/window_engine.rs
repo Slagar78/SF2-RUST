@@ -16,7 +16,7 @@ pub const VDPTILE_PALETTE3: u16 = 0x4000;
 pub const VDPTILE_PRIORITY: u16 = 0x8000;
 
 pub const MAX_WINDOWS: usize = 16;
-pub const SLOT_SIZE: usize = 1024; // Максимальный размер одного окна (тайлов)
+pub const SLOT_SIZE: usize = 1024;
 
 #[derive(Clone, Copy, Default)]
 pub struct WindowEntry {
@@ -45,7 +45,6 @@ impl WindowEngine {
     pub fn new() -> Self {
         Self {
             entries: [WindowEntry::default(); MAX_WINDOWS],
-            // Память под все 16 окон (16 * 1024 = 16384 = 0x4000)
             window_tile_layouts: vec![0; MAX_WINDOWS * SLOT_SIZE],
         }
     }
@@ -56,7 +55,7 @@ impl WindowEngine {
 
     pub fn create_window_with_layout(&mut self, d1: u16, width: u8, height: u8, layout: &[u16]) -> Option<usize> {
         let slot = self.alloc_slot()?;
-        let start_index = slot * SLOT_SIZE; // У каждого окна свой кусок памяти
+        let start_index = slot * SLOT_SIZE;
 
         for (i, &tile) in layout.iter().enumerate() {
             if i < SLOT_SIZE {
@@ -239,11 +238,35 @@ impl WindowEngine {
                         let tx = x_pos + c * 8;
                         let mut ty = y_pos + r * 8;
 
-                      // Захватываем левую стрелку (0x312-0x323) и правую (0x324-0x335)
-                      if tile_idx >= 0x0312 && tile_idx <= 0x0335 {
-                          ty += 4;
-                      }
+                        // Сдвиг для стрелок
+                        if tile_idx >= 0x0312 && tile_idx <= 0x0335 {
+                            ty += 4;
+                        }
 
+                        // Если это иконка магии, сначала рисуем под ней синий фон (VDPTILE_SPACE = 0x20)
+                        let is_magic_icon = tile_idx >= 0x140 && tile_idx <= 0x150;
+                        if is_magic_icon {
+                            if let Some(bg_tile) = vram.tile(0x20) {
+                                for py in 0..8 {
+                                    for px in 0..8 {
+                                        let out_x = tx + px as i32;
+                                        let out_y = ty + py as i32;
+                                        if out_x >= 32 && out_x < 288 && out_y >= 0 && out_y < 224 {
+                                            let bg_byte = bg_tile[(py * 4 + (px / 2)) as usize];
+                                            let bg_ci = if px % 2 == 0 { (bg_byte >> 4) & 0x0F } else { bg_byte & 0x0F } as usize;
+                                            if bg_ci != 0 {
+                                                let color_idx = pal_offset + bg_ci;
+                                                let color = if color_idx < palette.len() { palette[color_idx] } else { Color::RGB(0, 0, 0) };
+                                                let off = out_y as usize * pitch + out_x as usize * 4;
+                                                buf[off] = color.r; buf[off+1] = color.g; buf[off+2] = color.b; buf[off+3] = 255;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Теперь рисуем саму иконку/тайл
                         for py in 0..8 {
                             for px in 0..8 {
                                 let src_col = if h_flip { 7 - px } else { px };

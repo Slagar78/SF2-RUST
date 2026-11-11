@@ -135,17 +135,73 @@ impl MemberMenuState {
                 window_engine.write_string(slot, 1, 3 + i, "                           ");
             }
 
-            window_engine.write_string(slot, 1, 1, "NAME");
+            window_engine.write_string(slot, 2, 1, "NAME");
             window_engine.write_string(slot, 11, 1, "CLASS");
             window_engine.write_string(slot, 21, 1, "LEV");
             window_engine.write_string(slot, 25, 1, "EXP");
             
             for (i, m) in members.iter().take(4).enumerate() {
                 let y = 3 + (i as u8 * 2); 
-                window_engine.write_string(slot, 1, y, &m.name);
+                
+                // Добавили стрелку выделения
+                let prefix = if i == self.selected_member { ">" } else { " " };
+                window_engine.write_string(slot, 1, y, prefix);
+                
+                window_engine.write_string(slot, 2, y, &m.name);
                 window_engine.write_string(slot, 11, y, &m.class);
                 window_engine.write_string(slot, 21, y, &m.level.to_string());
                 window_engine.write_string(slot, 25, y, "0");
+            }
+        }
+    }
+
+    // Добавили функцию для мигающей красной рамки
+    pub fn draw_highlight(&self, buf: &mut [u8], pitch: usize, window_engine: &WindowEngine, frame_counter: u32) {
+        if let Some(slot) = self.window_slot_list {
+            let blink_cycle = frame_counter % 30;
+            if blink_cycle < 7 {
+                return;
+            }
+
+            let entry = &window_engine.entries[slot];
+            let win_x = (((entry.x_y >> 8) as u8 as i8) as i32 * 8) + 32;
+            let win_y = ((entry.x_y & 0xFF) as u8 as i8) as i32 * 8;
+
+            let target_x = win_x + (1 * 8); 
+            let target_y = win_y + ((3 + self.selected_member as i32 * 2) * 8) - 4;
+
+            let w = 72; 
+            let h = 16;
+            let color = Color::RGB(255, 0, 0);
+
+            for x in 0..w {
+                let px = target_x + x;
+                let py_top = target_y;
+                let py_bot = target_y + h - 1;
+
+                if px >= 32 && px < 288 && py_top >= 0 && py_top < 224 {
+                    let off = py_top as usize * pitch + px as usize * 4;
+                    buf[off] = color.r; buf[off+1] = color.g; buf[off+2] = color.b; buf[off+3] = 255;
+                }
+                if px >= 32 && px < 288 && py_bot >= 0 && py_bot < 224 {
+                    let off = py_bot as usize * pitch + px as usize * 4;
+                    buf[off] = color.r; buf[off+1] = color.g; buf[off+2] = color.b; buf[off+3] = 255;
+                }
+            }
+
+            for y in 0..h {
+                let py = target_y + y;
+                let px_left = target_x;
+                let px_right = target_x + w - 1;
+
+                if px_left >= 32 && px_left < 288 && py >= 0 && py < 224 {
+                    let off = py as usize * pitch + px_left as usize * 4;
+                    buf[off] = color.r; buf[off+1] = color.g; buf[off+2] = color.b; buf[off+3] = 255;
+                }
+                if px_right >= 32 && px_right < 288 && py >= 0 && py < 224 {
+                    let off = py as usize * pitch + px_right as usize * 4;
+                    buf[off] = color.r; buf[off+1] = color.g; buf[off+2] = color.b; buf[off+3] = 255;
+                }
             }
         }
     }
