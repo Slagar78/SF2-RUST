@@ -16,8 +16,9 @@ C:\my_project\SF2-RUST\
 │   ├── game.rs                     <-- Main game loop and game-state switching (handles rendering modes)
 │   ├── game\
 │   │   ├── state.rs                <-- GameState enum (Launcher, SegaLogo, Map, Menu, etc.)
-│   │   ├── render_mode.rs          <-- NEW: RenderMode enum (Original 320x224, Normal 768x672)
+│   │   ├── render_mode.rs          <-- RenderMode enum (Original 320x224, Normal 768x672)
 │   │   ├── player.rs               <-- Bowie movement (grid, collisions, turn-in-place, ladders, warps)
+│   │   ├── flags.rs                <-- NEW: GameFlags (global story/event boolean states)
 │   │   ├── ally_parser.rs          <-- Parser for .asm data (names, classes, stats, mapsprite)
 │   │   ├── item_parser.rs          <-- Parser for itemnames.asm and itemdefs.asm
 │   │   ├── transition.rs           <-- Screen fade logic for warps (fade out/in)
@@ -29,7 +30,8 @@ C:\my_project\SF2-RUST\
 │   │   │   ├── anim.rs             <-- Universal 32-tile animation (water, torches, etc.)
 │   │   │   ├── camera.rs           <-- Camera with dead zones, subpixel scrolling, can_open_menu()
 │   │   │   ├── draw.rs             <-- Renders two map layers (H32 clipping, anim tile replacement)
-│   │   │   └── events.rs           <-- Event handling (warps, doors, roofs, items)
+│   │   │   ├── events.rs           <-- Event handling (warps, doors, roofs, items)
+│   │   │   └── entities.rs         <-- NEW: NPC parser (s1_entities.asm) and smooth movement AI
 │   │   │
 │   │   ├── menu.rs                 <-- Menu module root: connects menu submodules
 │   │   ├── menu\
@@ -44,10 +46,17 @@ C:\my_project\SF2-RUST\
 │   │   │
 │   │   ├── screens.rs              <-- Screens module root: connects screen submodules
 │   │   └── screens\
-│   │       ├── launcher.rs         <-- NEW: Startup UI (Normal / Original resolution buttons)
+│   │       ├── launcher.rs         <-- Startup UI (Normal / Original resolution buttons)
 │   │       ├── segalogo.rs         <-- SEGA logo animation
 │   │       ├── segalogo_data.rs    <-- Logo frame data
 │   │       ├── title.rs            <-- Title screen (H40)
 │   │       └── witch.rs            <-- Witch screen
 │   │
-│   └── data\                       <-- Original asset directory (bin files and .asm sources)
+│   └── data\                       <-- Original asset directory (fully matches sf2disasm structure)
+│       ├── ...                     <-- (maps, stats, scripting, etc. identical to sf2disasm)
+│       └── graphics\
+│           ├── ...
+│           └── mapsprites\
+│               ├── mapspritenames.txt <-- NEW: Parsed to get exact NPC sprite IDs
+│               ├── mapsprite000-0.bin
+│               └── ...

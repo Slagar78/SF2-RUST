@@ -3,6 +3,7 @@ use sdl3::pixels::Color;
 use std::collections::HashMap;
 use crate::engine::decompressor;
 use crate::game::map::anim::MapAnimation;
+use crate::game::map::entities::MapEntity;
 
 const LAYOUT_SIZE: usize = 0x1000;
 const CRAM_VALUE_MAP: [u8; 8] = [0, 52, 87, 116, 144, 172, 206, 255];
@@ -67,6 +68,7 @@ pub struct MapData {
     pub roof_events: Vec<RoofEvent>,
     pub areas: Vec<MapArea>,
     pub animations: Vec<MapAnimation>,
+    pub entities: Vec<MapEntity>,
 }
 
 pub fn load_map_names() -> HashMap<String, u8> {
@@ -144,7 +146,9 @@ pub fn load_map_data(map_id: u8) -> MapData {
         }
     }
 
-    MapData { layout, blockset, tilesets, palette, warps, step_events, items, roof_events, areas, animations }
+  let entities = crate::game::map::entities::load_entities(map_id);
+
+    MapData { layout, blockset, tilesets, palette, warps, step_events, items, roof_events, areas, animations, entities}
 }
 
 struct BitStream<'a> {

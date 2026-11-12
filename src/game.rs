@@ -8,14 +8,15 @@ pub mod ally_parser;
 pub mod item_parser;
 pub mod transition;
 pub mod render_mode;
+pub mod flags;
+
+
 use crate::game::render_mode::RenderMode;
 use crate::game::screens::launcher::LauncherState;
 
-
-
 use sdl3::event::Event;
 use sdl3::keyboard::Keycode;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use crate::engine::renderer::Renderer;
 use crate::engine::input::{InputState, INPUT_A, INPUT_B, INPUT_C, INPUT_UP, INPUT_DOWN, INPUT_LEFT, INPUT_RIGHT};
 use crate::engine::base_tiles;
@@ -67,6 +68,15 @@ pub fn run() {
     let mut map_state = MapState::new(player_state.pixel_x / 16, player_state.pixel_y / 16, &map_data);
     
     let player_sprites = player::load_player_sprites();
+    let mut map_sprites: HashMap<u8, player::PlayerSprites> = HashMap::new();
+    map_sprites.insert(0, player_sprites); // 0 - это Боуи
+
+    // Загружаем спрайты для NPC на стартовой карте
+    for entity in &map_data.entities {
+        if !map_sprites.contains_key(&entity.sprite_id) {
+            map_sprites.insert(entity.sprite_id, player::load_mapsprite(entity.sprite_id));
+        }
+    }
     
     let mut sprite_palette = vec![sdl3::pixels::Color::RGB(0,0,0); 64];
     let pal_data = std::fs::read("src/data/graphics/tech/basepalette.bin").expect("Нет basepalette.bin");
@@ -105,6 +115,7 @@ pub fn run() {
     let _all_items = item_parser::load_items();
 
     let mut transition = transition::TransitionState::new();
+    let _game_flags = flags::GameFlags::new();
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -210,6 +221,15 @@ pub fn run() {
                             println!("Загрузка карты через варп: {}", dest_map);
                             events_state.reset(); 
                             map_data = load_map_data(dest_map);
+
+                            // Сбрасываем кэш и грузим спрайты для новой карты
+                            map_sprites.clear();
+                            map_sprites.insert(0, player::load_player_sprites());
+                            for entity in &map_data.entities {
+                                if !map_sprites.contains_key(&entity.sprite_id) {
+                                    map_sprites.insert(entity.sprite_id, player::load_mapsprite(entity.sprite_id));
+                                }
+                            }
                         }
 
                         player_state.tile_x = tx as i32;
@@ -251,6 +271,15 @@ pub fn run() {
                     for anim in &mut map_data.animations {
                         anim.update(&mut map_data.tilesets);
                     }
+
+                    // Движение NPC (с проверкой на игрока, чтобы не наступали друг на друга)
+                    crate::game::map::entities::tick_entities(
+                        &mut map_data.entities, 
+                        &map_data.layout, 
+                        player_state.tile_x,
+                        player_state.tile_y,
+                        frame_counter
+                    );
 
                     let target_x = player_state.pixel_x / 16;
                     let target_y = player_state.pixel_y / 16;
@@ -539,8 +568,22 @@ pub fn run() {
                     let p_x = player_state.pixel_x / 16;
                     let p_y = player_state.pixel_y / 16;
 
+                    // 1. Рисуем нижний слой карты (землю)
                     map::draw::draw_map(buffer, pitch, &map_data, &map_state, 0, p_x, p_y);
-                    player::draw_player(buffer, pitch, &player_sprites, &player_state, map_state.view_x - 32, map_state.view_y, &sprite_palette);
+                    
+                    // 2. Рисуем NPC (из кэша по ID)
+                    for entity in &map_data.entities {
+                        if let Some(spr) = map_sprites.get(&entity.sprite_id) {
+                            player::draw_entity(buffer, pitch, entity, spr, map_state.view_x - 32, map_state.view_y, &sprite_palette);
+                        }
+                    }
+
+                    // 3. Рисуем игрока (Боуи)
+                    if let Some(bowie_spr) = map_sprites.get(&0) {
+                        player::draw_player(buffer, pitch, bowie_spr, &player_state, map_state.view_x - 32, map_state.view_y, &sprite_palette);
+                    }
+                    
+                    // 4. Рисуем верхний слой (крыши, верхушки деревьев)
                     map::draw::draw_map(buffer, pitch, &map_data, &map_state, 1, p_x, p_y);
                     
                     if game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus || game_state == GameState::MagicMenu {

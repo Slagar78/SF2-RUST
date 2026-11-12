@@ -3,6 +3,7 @@ use crate::engine::decompressor;
 use crate::game::map::loader::MapData;
 use crate::engine::input::{INPUT_UP, INPUT_DOWN, INPUT_LEFT, INPUT_RIGHT};
 use crate::game::map::events::{check_tile_events, MapEventResult, MapEventsState};
+use crate::game::map::entities::MapEntity;
 
 // Tile size in fixed-point units: 24 real px per tile × 16 = 384.
 // All pixel coordinates in this module are stored ×16 so movement can advance
@@ -86,17 +87,11 @@ impl PlayerState {
         self.travel_x != 0 || self.travel_y != 0
     }
 
-    /// Attempt to start a step from the held directional input.
-    /// Returns `MoveResult::Warp(..)` only when a previously queued warp fires,
-    /// which happens strictly after the current step settles (matches SF2's
-    /// "warp on step completion" timing).
+
     pub fn try_move(&mut self, input_bits: u8, map: &mut MapData, events: &mut MapEventsState) -> MoveResult {
         if self.is_moving() { return MoveResult::None; }
 
-        // Deferred warp dispatch: `pending_warp` is set by `tick` once a step
-        // lands on a warp tile. Consuming it here fires the teleport only when
-        // the sprite is fully settled, and remembers the landing tile so the
-        // arrival does not re-trigger the same warp.
+        // Deferred warp dispatch
         if let Some((dest_map, x, y, facing)) = self.pending_warp.take() {
             self.last_warp_tile = Some((x as i32, y as i32));
             return MoveResult::Warp(dest_map, x, y, facing);
@@ -114,23 +109,19 @@ impl PlayerState {
 
         if !up && !down && !left && !right { return MoveResult::None; }
 
-        // === ПОВОРОТ НА МЕСТЕ ===
-        // Определяем приоритетное направление (как в Ruby: Right, Left, Down, Up)
+        // Определяем приоритетное направление (для поворота на месте)
         let intended_dir = if right { Facing::Right }
                            else if left { Facing::Left }
                            else if down { Facing::Down }
                            else { Facing::Up };
 
-        // Если нажали в другую сторону — поворачиваемся и стоим 1 кадр
+        // Поворот на месте
         if self.facing != intended_dir && !self.on_stairs {
             self.facing = intended_dir;
             self.anim_counter = 0; 
             return MoveResult::None; 
         }
-        // ======================================
 
-        // Candidate steps in priority order. `add_cand` deduplicates, so the
-        // first legal candidate wins when two inputs map to the same offset.
         let mut candidates: Vec<(i32, i32, Facing)> = Vec::new();
         let mut add_cand = |dx: i32, dy: i32, dir: Facing| {
             if !candidates.contains(&(dx, dy, dir)) {
@@ -138,17 +129,12 @@ impl PlayerState {
             }
         };
 
-        // Tile flags encode collision/staircase state in the top two bits:
-        //   0b01xx = left-hand staircase
-        //   0b10xx = right-hand staircase
-        //   0b11xx = solid wall
         let cur_idx = (self.tile_y * 64 + self.tile_x) as usize;
         let cur_flags = if cur_idx < map.layout.len() { map.layout[cur_idx].flags } else { 0 };
         
         let on_stairs_left  = (cur_flags & 0xC000) == 0x4000;
         let on_stairs_right = (cur_flags & 0xC000) == 0x8000;
 
-        // Helper: does the tile at (tx, ty) have a staircase flag?
         let is_target_stairs = |tx: i32, ty: i32| -> bool {
             if tx < 0 || tx >= 64 || ty < 0 || ty >= 64 { return false; }
             let idx = (ty * 64 + tx) as usize;
@@ -157,18 +143,13 @@ impl PlayerState {
             (flags & 0xC000) == 0x4000 || (flags & 0xC000) == 0x8000
         };
 
-        // Staircase movement. On stairs SF2 permits diagonal steps aligned with
-        // the staircase direction, and the two staircase orientations (left-hand
-        // vs. right-hand) are mirror images of each other.
+        // Логика лестниц
         if on_stairs_left {
-            // Убрали UP. Поднимаемся только по кнопке ВЛЕВО.
             if left { 
                 add_cand(-1, -1, Facing::Left); 
                 add_cand(-1, 0, Facing::Left);
             }
-            // Оставляем DOWN и RIGHT для спуска.
             if down { 
-                // Diagonal descent is only valid when the next tile continues the staircase.
                 if is_target_stairs(self.tile_x + 1, self.tile_y + 1) {
                     add_cand(1, 1, Facing::Right); 
                 }
@@ -181,12 +162,10 @@ impl PlayerState {
                 add_cand(1, 0, Facing::Right);
             }
         } else if on_stairs_right {
-            // Убрали UP. Поднимаемся только по кнопке ВПРАВО.
             if right { 
                 add_cand(1, -1, Facing::Right); 
                 add_cand(1, 0, Facing::Right);
             }
-            // Оставляем DOWN и LEFT для спуска.
             if down { 
                 if is_target_stairs(self.tile_x - 1, self.tile_y + 1) {
                     add_cand(-1, 1, Facing::Left); 
@@ -200,21 +179,20 @@ impl PlayerState {
                 add_cand(-1, 0, Facing::Left);
             }
         } else {
-            // Open ground: cardinal movement only, plus diagonal entry onto an
-            // adjacent staircase triggered by holding two directions at once.
+            // ОБЫЧНАЯ ЗЕМЛЯ
             if up    { add_cand(0, -1, Facing::Up); }
             if down  { add_cand(0,  1, Facing::Down); }
             if left  { add_cand(-1, 0, Facing::Left); }
             if right { add_cand(1,  0, Facing::Right); }
             
-            if up && left    { add_cand(-1, -1, Facing::Left); }
-            if up && right   { add_cand(1, -1, Facing::Right); }
-            if down && left  { add_cand(-1, 1, Facing::Left); }
-            if down && right { add_cand(1, 1, Facing::Right); }
+            // ДИАГОНАЛЬ ТОЛЬКО НА ЛЕСТНИЦУ
+            if up && left    && is_target_stairs(self.tile_x - 1, self.tile_y - 1) { add_cand(-1, -1, Facing::Left); }
+            if up && right   && is_target_stairs(self.tile_x + 1, self.tile_y - 1) { add_cand(1, -1, Facing::Right); }
+            if down && left  && is_target_stairs(self.tile_x - 1, self.tile_y + 1) { add_cand(-1, 1, Facing::Left); }
+            if down && right && is_target_stairs(self.tile_x + 1, self.tile_y + 1) { add_cand(1, 1, Facing::Right); }
         }
 
         self.current_direction = None;
-        // Try candidates in priority order; the first legal step is committed.
         for (dx, dy, dir) in candidates {
             if let Some(result) = self.begin_step(dx, dy, map, events) {
                 self.current_direction = Some(dir);
@@ -225,9 +203,6 @@ impl PlayerState {
         MoveResult::None
     }
 
-    /// Commit a single-tile step if the destination is legal.
-    /// Updates tile/target coordinates immediately and starts the pixel lerp
-    /// that `tick` will advance each frame.
     fn begin_step(&mut self, dx: i32, dy: i32, map: &mut MapData, _events: &mut MapEventsState) -> Option<MoveResult> {
         let nx = self.tile_x + dx;
         let ny = self.tile_y + dy;
@@ -236,27 +211,25 @@ impl PlayerState {
         let idx = (ny * 64 + nx) as usize;
         if idx >= map.layout.len() { return None; }
 
-        // A walled tile is passable only if a door event sits on it.
         let block_flags = map.layout[idx].flags;
         let is_wall = (block_flags & 0xC000) == 0xC000;
         let is_door = map.step_events.iter().any(|ev| ev.trig_x == nx as u8 && ev.trig_y == ny as u8);
 
         if is_wall && !is_door { return None; }
 
-        // Clear the post-warp protection once we've moved off the landing tile,
-        // allowing the same warp tile to fire again on a later visit.
+        // Проверка коллизии с NPC
+        let is_npc = map.entities.iter().any(|e| e.x as i32 == nx && e.y as i32 == ny && !e.is_hidden);
+        if is_npc { return None; }
+
         if let Some((wx, wy)) = self.last_warp_tile {
             if nx != wx || ny != wy {
                 self.last_warp_tile = None;
             }
         }
 
-        // Begin the step: update tile coords now, and lerp pixel coords toward
-        // the new target from `tick`.
         self.tile_x = nx; self.tile_y = ny;
         self.target_x = nx * TILE_SIZE_FIXED; self.target_y = ny * TILE_SIZE_FIXED;
         self.travel_x = dx * TILE_SIZE_FIXED; self.travel_y = dy * TILE_SIZE_FIXED;
-        // Умножаем скорость на множитель (12/16 = 0.75)
         self.velocity_x = dx * SPEED; 
         self.velocity_y = dy * SPEED;
 
@@ -366,6 +339,24 @@ pub fn load_player_sprites() -> PlayerSprites {
     PlayerSprites { down, up, side }
 }
 
+pub fn load_mapsprite(id: u8) -> PlayerSprites {
+    let mut up   = load_sheet(&format!("mapsprite{:03}-0.bin", id));
+    let mut side = load_sheet(&format!("mapsprite{:03}-1.bin", id));
+    let mut down = load_sheet(&format!("mapsprite{:03}-2.bin", id));
+
+    for sheet in [&mut down, &mut up, &mut side] {
+        let frames = sheet.len() / FRAME_BYTES;
+        for f in 0..frames {
+            let start = f * FRAME_BYTES;
+            let end = (f + 1) * FRAME_BYTES;
+            if end <= sheet.len() {
+                reorder_tiles(&mut sheet[start..end]);
+            }
+        }
+    }
+    PlayerSprites { down, up, side }
+}
+
 /// Draw the player sprite at its current position, offset by the camera scroll.
 /// The sprite is a 3x3 tile grid (24x24 px). The `side` sheet is drawn facing
 /// left and horizontally mirrored for right-facing frames. `palette` is the
@@ -424,6 +415,66 @@ pub fn draw_player(
                     let py = draw_y + row as i32;
                     // Clip to the visible map viewport. The leftmost 32 px is
                     // reserved for the HUD/side window, so drawing starts at x=32.
+                    if px >= 32 && px < 288 && py >= 0 && py < 224 {
+                        let off = py as usize * pitch + px as usize * 4;
+                        buf[off] = c.r; buf[off+1] = c.g; buf[off+2] = c.b; buf[off+3] = 255;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// src/game/player.rs (в самый конец)
+pub fn draw_entity(
+    buf: &mut [u8], pitch: usize, 
+    entity: &MapEntity, 
+    sprites: &PlayerSprites,
+    scroll_x: i32, scroll_y: i32, 
+    palette: &[Color]
+) {
+    if entity.is_hidden { return; }
+
+    // ВОТ ОНО: берем пиксельные координаты (плавные), а не tile_x (резкие)
+    let real_px = entity.pixel_x / 16;
+    let real_py = entity.pixel_y / 16;
+
+    let px_base = real_px - scroll_x;
+    let py_base = real_py - scroll_y - 8;
+
+    let (sheet, h_flip) = match entity.facing {
+        0 => (&sprites.up, false),
+        2 => (&sprites.side, false),
+        3 => (&sprites.side, true),
+        1 | _ => (&sprites.down, false),
+    };
+
+    if sheet.is_empty() { return; }
+
+    // Берем кадр анимации из нашего tick_entities
+    let frame_offset = entity.frame as usize * FRAME_BYTES;
+    
+    for ty in 0..3 {
+        for tx_iter in 0..3 {
+            let tx = if h_flip { 2 - tx_iter } else { tx_iter };
+            let tile_idx = frame_offset + (ty * 3 + tx) * TILE_BYTES;
+            if tile_idx + TILE_BYTES > sheet.len() { continue; }
+            let tile = &sheet[tile_idx..tile_idx + TILE_BYTES];
+
+            let draw_x = px_base + (tx_iter as i32 * 8);
+            let draw_y = py_base + (ty as i32 * 8);
+
+            for row in 0..8 {
+                for col in 0..8 {
+                    let src_col = if h_flip { 7 - col } else { col };
+                    let byte_idx = row * 4 + (src_col / 2);
+                    let byte = tile[byte_idx];
+                    let ci = if src_col % 2 == 0 { (byte >> 4) & 0x0F } else { byte & 0x0F } as usize;
+                    if ci == 0 || ci >= palette.len() { continue; }
+                    let c = palette[ci];
+
+                    let px = draw_x + col as i32;
+                    let py = draw_y + row as i32;
                     if px >= 32 && px < 288 && py >= 0 && py < 224 {
                         let off = py as usize * pitch + px as usize * 4;
                         buf[off] = c.r; buf[off+1] = c.g; buf[off+2] = c.b; buf[off+3] = 255;

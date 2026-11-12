@@ -5,6 +5,7 @@ pub mod draw;
 pub mod events;
 pub mod anim;
 pub mod finder;
+pub mod entities;
 
 pub use loader::load_map_data;
 pub use camera::MapState;
