@@ -19,7 +19,6 @@ pub struct Combatant {
 
 // ============================================================
 //  START DEFINITIONS  (allystartdefs.asm)
-//  startClass / startLevel / startItems(4 slots)
 // ============================================================
 
 struct AllyStartDef {
@@ -28,7 +27,6 @@ struct AllyStartDef {
     items: Vec<String>,
 }
 
-/// `WOODEN_SWORD` -> `"Wooden Sword"`, `INDRA_STAFF` -> `"Indra Staff"`.
 fn item_enum_to_display(enum_name: &str) -> String {
     enum_name
         .split('_')
@@ -78,9 +76,6 @@ fn load_ally_start_defs() -> Vec<AllyStartDef> {
             in_items = true;
             items_left = 4;
         } else if in_items && items_left > 0 {
-            // Строки вида:  WOODEN_SWORD|EQUIPPED, &
-            //               MEDICAL_HERB, &
-            //               NOTHING
             let mut token = clean;
             while token.ends_with('&') || token.ends_with(',') {
                 token = token[..token.len() - 1].trim_end();
@@ -145,6 +140,44 @@ fn load_class_movements() -> HashMap<String, u16> {
 }
 
 // ============================================================
+//  CLASS TYPES  (classnames.asm + classtypes.asm)  <-- НОВОЕ
+//  Возвращает map: "PRST" -> "BASE", "PLDN" -> "PROMO", "SORC" -> "SPECIAL"
+// ============================================================
+
+pub fn load_class_types() -> HashMap<String, String> {
+    // 1. Читаем имена классов по порядку
+    let mut class_names: Vec<String> = Vec::new();
+    if let Ok(content) = fs::read_to_string("src/data/stats/allies/classes/classnames.asm") {
+        for line in content.lines() {
+            let clean = line.split(';').next().unwrap_or("").trim();
+            if let Some(start) = clean.find("className \"") {
+                let rest = &clean[start + 11..];
+                if let Some(end) = rest.find('"') {
+                    class_names.push(rest[..end].to_string());
+                }
+            }
+        }
+    }
+
+    // 2. Читаем типы и связываем по индексу
+    let mut class_types = HashMap::new();
+    if let Ok(content) = fs::read_to_string("src/data/stats/allies/classes/classtypes.asm") {
+        let mut index = 0;
+        for line in content.lines() {
+            let clean = line.split(';').next().unwrap_or("").trim();
+            if clean.starts_with("classType ") {
+                let ctype = clean["classType".len()..].trim().to_string();
+                if let Some(name) = class_names.get(index) {
+                    class_types.insert(name.clone(), ctype);
+                }
+                index += 1;
+            }
+        }
+    }
+    class_types
+}
+
+// ============================================================
 //  NAMES / MAPSPRITES
 // ============================================================
 
@@ -181,7 +214,6 @@ fn load_ally_mapsprites() -> Vec<String> {
 
 // ============================================================
 //  STATS + SPELLS  (allystatsXX.asm)
-//  Берём только первый блок `forClass ...`.
 // ============================================================
 
 struct StatsBlock {
@@ -208,7 +240,6 @@ fn parse_ally_stats(id: usize) -> StatsBlock {
     for line in content.lines() {
         let mut clean = line.split(';').next().unwrap().trim();
 
-        // Отрезаем метку вида "AllyStats01: ..."
         if let Some(colon_idx) = clean.find(':') {
             clean = clean[colon_idx + 1..].trim();
         }
@@ -298,9 +329,6 @@ pub fn load_force_members() -> Vec<Combatant> {
             .cloned()
             .unwrap_or_else(|| "BOWIE_PROMO".to_string());
 
-        // Класс / уровень / предметы — из allystartdefs.asm.
-        // Если по какой-то причине стартовой записи нет, падаем обратно
-        // на первый forClass из allystats.
         let (class, level, items) = match start_defs.get(id) {
             Some(s) => (s.class.clone(), s.level, s.items.clone()),
             None    => (stats.class.clone(), 1u8, Vec::new()),

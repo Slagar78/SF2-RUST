@@ -10,7 +10,6 @@ pub mod transition;
 pub mod render_mode;
 pub mod flags;
 
-
 use crate::game::render_mode::RenderMode;
 use crate::game::screens::launcher::LauncherState;
 
@@ -69,9 +68,8 @@ pub fn run() {
     
     let player_sprites = player::load_player_sprites();
     let mut map_sprites: HashMap<u8, player::PlayerSprites> = HashMap::new();
-    map_sprites.insert(0, player_sprites); // 0 - это Боуи
+    map_sprites.insert(0, player_sprites);
 
-    // Загружаем спрайты для NPC на стартовой карте
     for entity in &map_data.entities {
         if !map_sprites.contains_key(&entity.sprite_id) {
             map_sprites.insert(entity.sprite_id, player::load_mapsprite(entity.sprite_id));
@@ -107,11 +105,11 @@ pub fn run() {
     
     let mut diamond_menu_slot: Option<usize> = None;
 
-    let bowie_portrait = crate::game::menu::portrait::load_portrait(0);
     let mut member_menu = MemberMenuState::new();
     let mut member_status = MemberStatusState::new();
     let mut magic_menu = MagicMenuState::new();
     let force_members = load_force_members();
+    let class_types = crate::game::ally_parser::load_class_types();
     let _all_items = item_parser::load_items();
 
     let mut transition = transition::TransitionState::new();
@@ -163,6 +161,9 @@ pub fn run() {
             window_engine.tick();
 
             match game_state {
+                // ==============================================================
+                // ====== LAUNCHER (Стартовое меню выбора разрешения) ==========
+                // ==============================================================
                 GameState::Launcher => {
                     screens::launcher::update_and_draw(&mut renderer, &mut launcher_state, &input_state);
                     if let Some(mode) = launcher_state.confirmed.take() {
@@ -172,40 +173,51 @@ pub fn run() {
                     }
                     should_render = true;
                 }
+
+                // ==============================================================
+                // ====== SEGA LOGO (Заставка SEGA) =============================
+                // ==============================================================
                 GameState::SegaLogo => {
                     screens::segalogo::update_and_draw(&mut renderer, frame_counter);
                     if frame_counter > 200 { game_state = GameState::TitleScreen; frame_counter = 0; }
                     should_render = true; 
                 }
+
+                // ==============================================================
+                // ====== TITLE SCREEN (Заглавный экран) ========================
+                // ==============================================================
                 GameState::TitleScreen => {
                     screens::title::update_and_draw(&mut renderer, frame_counter);
                     should_render = true; 
                 }
+
+                // ==============================================================
+                // ====== WITCH SCREEN (Ведьма / экран после титров) ============
+                // ==============================================================
                 GameState::WitchScreen => {
                     screens::witch::update_and_draw(&mut renderer, &vram, &input_state);
                     should_render = true; 
                 }
 
-
+                // ==============================================================
+                // ====== MAP (Игровая карта: ходьба, камера, NPC) ==============
+                // ==============================================================
                 GameState::Map => {
                     // 1. Ловим нажатие A/C
                     let confirm_pressed = (input_state.current_player_input & (INPUT_A | INPUT_C)) != 0;
                     let confirm_was_pressed = (last_input & (INPUT_A | INPUT_C)) != 0;
 
                     if confirm_pressed && !confirm_was_pressed && !menu_open && !pending_menu_open {
-                        pending_menu_open = true; // Ставим в очередь ожидания
+                        pending_menu_open = true;
                     }
 
-                    // Отмена ожидания по кнопке B
                     if (input_state.current_player_input & INPUT_B) != 0 {
                         pending_menu_open = false;
                     }
 
-                    // 2. Движение игрока (БЛОКИРУЕТСЯ, пока ждем меню)
-                    if !menu_open && !pending_menu_open {
+                    // 2. Движение игрока
+                    if !menu_open && !pending_menu_open && !transition.is_fading_out() {
                         if !player_state.is_moving() {
-                            
-                            // Запускаем шаг (скорость всегда нормальная)
                             let move_res = player_state.try_move(input_state.current_player_input, &mut map_data, &mut events_state);
                             
                             if let MoveResult::Warp(dest_map, x, y, facing) = move_res {
@@ -222,7 +234,6 @@ pub fn run() {
                             events_state.reset(); 
                             map_data = load_map_data(dest_map);
 
-                            // Сбрасываем кэш и грузим спрайты для новой карты
                             map_sprites.clear();
                             map_sprites.insert(0, player::load_player_sprites());
                             for entity in &map_data.entities {
@@ -257,22 +268,18 @@ pub fn run() {
                         events_state.update_roofs_on_warp(&mut map_data, tx as i32, ty as i32);
 
                         let _ = crate::game::map::events::check_tile_events(
-                            &mut player_state,
-                            &mut map_data,
-                            &mut events_state,
-                            tx as i32,
-                            ty as i32,
+                            &mut player_state, &mut map_data, &mut events_state,
+                            tx as i32, ty as i32,
                         );
                     }
 
-                    // 4. Обновляем игрока и камеру
+                    // 4. Обновляем игрока, анимации, NPC и камеру
                     player_state.tick(&mut map_data, &mut events_state);
 
                     for anim in &mut map_data.animations {
                         anim.update(&mut map_data.tilesets);
                     }
 
-                    // Движение NPC (с проверкой на игрока, чтобы не наступали друг на друга)
                     crate::game::map::entities::tick_entities(
                         &mut map_data.entities, 
                         &map_data.layout, 
@@ -286,11 +293,10 @@ pub fn run() {
                     map_state.update_view(target_x, target_y, &map_data);
                     map_state.tick();
 
-                    // 5. Открываем меню, ТОЛЬКО когда всё остановилось
+                    // 5. Открываем Diamond Menu
                     if pending_menu_open && !menu_open {
                         if !player_state.is_moving() && map_state.can_open_menu() {
                             pending_menu_open = false; 
-                            
                             player_state.interact(&mut map_data);
                             
                             game_state = GameState::Menu;
@@ -305,11 +311,13 @@ pub fn run() {
                         }
                     }
 
-                    // 6. Обновляем last_input
                     last_input = input_state.current_player_input;
                     should_render = true;
                 }
 
+                // ==============================================================
+                // ====== MENU (Diamond Menu - крест: MEMBER/MAGIC/ITEM) =======
+                // ==============================================================
                 GameState::Menu => {
                     let mut is_animating = false;
                     if let Some(slot) = diamond_menu_slot {
@@ -324,7 +332,6 @@ pub fn run() {
                                 window_engine.delete_window(slot);
                                 diamond_menu_slot = None;
                             }
-                            // ДОБАВЛЕНО: Блокируем игрока на 10 кадров после выхода по B
                             last_input = input_state.current_player_input;
                             player_state.input_delayer = 10; 
                         }
@@ -337,10 +344,9 @@ pub fn run() {
                         else if (current_input & INPUT_RIGHT) != 0 && menu_choice != 2 { menu_choice = 2; choice_changed = true; }
                         else if (current_input & INPUT_DOWN) != 0 && menu_choice != 3 { menu_choice = 3; choice_changed = true; }
 
-                        // Если выбор изменился, сбрасываем таймер, чтобы подсветка загорелась сразу
                         if choice_changed {
                             menu_anim_timer = 20; 
-                            menu_anim_delay = 6; // Задержка
+                            menu_anim_delay = 6;
                         }
 
                         let confirm_pressed = (current_input & (INPUT_A | INPUT_C)) != 0;
@@ -353,7 +359,6 @@ pub fn run() {
                                         window_engine.delete_window(slot);
                                         diamond_menu_slot = None;
                                     }
-                                    // ДОБАВЛЕНО: Блокируем игрока при входе в меню персонажей
                                     player_state.input_delayer = 10;
                                     game_state = GameState::MemberMenu;
                                     member_menu.open(&mut window_engine, &mut vram, &mut sprite_palette);
@@ -363,10 +368,9 @@ pub fn run() {
                                         window_engine.delete_window(slot);
                                         diamond_menu_slot = None;
                                     }
-                                    // ДОБАВЛЕНО: Блокируем игрока при входе в меню магии
                                     player_state.input_delayer = 10;
                                     game_state = GameState::MagicMenu;
-                                    magic_menu.open(&mut window_engine, &mut vram, &mut sprite_palette, bowie_portrait.clone());
+                                    magic_menu.open(&mut window_engine, &mut vram, &mut sprite_palette);
                                 }
                                 2 => println!("Открыто меню ПРЕДМЕТОВ"),
                                 _ => {}
@@ -380,7 +384,7 @@ pub fn run() {
                     
                     if menu_anim_delay > 0 {
                         menu_anim_delay -= 1;
-                        menu_anim_timer = 20; // Держим плитку статичной
+                        menu_anim_timer = 20;
                     } else {
                         menu_anim_timer = menu_anim_timer.saturating_sub(1);
                         if menu_anim_timer == 0 { menu_anim_timer = 20; }
@@ -388,6 +392,9 @@ pub fn run() {
                     should_render = true;
                 }
 
+                // ==============================================================
+                // ====== MEMBER MENU (Список отряда + Summary + Портрет) ======
+                // ==============================================================
                 GameState::MemberMenu => {
                     let mut is_animating = false;
                     if let Some(s) = member_menu.window_slot_portrait { if window_engine.entries[s].is_animating() { is_animating = true; } }
@@ -406,19 +413,44 @@ pub fn run() {
                             member_menu.pending_status = true;
                             last_input = current_input;
                         } else {
-                            if current_input != last_input {
-                                let mut changed = false;
-                                if (current_input & INPUT_UP) != 0 && member_menu.selected_member > 0 {
-                                    member_menu.selected_member -= 1;
-                                    changed = true;
+                            // НАВИГАЦИЯ с автоповтором + обновление портрета
+                            let up_pressed = (current_input & INPUT_UP) != 0;
+                            let down_pressed = (current_input & INPUT_DOWN) != 0;
+                            let mut changed = false;
+
+                            if up_pressed || down_pressed {
+                                if current_input != last_input {
+                                    // Первое нажатие — сразу
+                                    if up_pressed && member_menu.selected_member > 0 {
+                                        member_menu.selected_member -= 1;
+                                        changed = true;
+                                    } else if down_pressed && member_menu.selected_member < force_members.len() - 1 {
+                                        member_menu.selected_member += 1;
+                                        changed = true;
+                                    }
+                                    member_menu.nav_timer = 20;
+                                } else {
+                                    // Кнопка зажата — автоповтор
+                                    if member_menu.nav_timer > 0 {
+                                        member_menu.nav_timer -= 1;
+                                    } else {
+                                        if up_pressed && member_menu.selected_member > 0 {
+                                            member_menu.selected_member -= 1;
+                                            changed = true;
+                                        } else if down_pressed && member_menu.selected_member < force_members.len() - 1 {
+                                            member_menu.selected_member += 1;
+                                            changed = true;
+                                        }
+                                        member_menu.nav_timer = 6;
+                                    }
                                 }
-                                else if (current_input & INPUT_DOWN) != 0 && member_menu.selected_member < force_members.len() - 1 {
-                                    member_menu.selected_member += 1;
-                                    changed = true;
-                                }
-                                if changed {
-                                    member_menu.clamp_scroll(force_members.len());
-                                }
+                            } else {
+                                member_menu.nav_timer = 0;
+                            }
+
+                            if changed {
+                                member_menu.clamp_scroll(force_members.len());
+                                member_menu.update_portrait(&mut vram, &mut sprite_palette, member_menu.selected_member);
                             }
                             last_input = current_input;
                         }
@@ -436,8 +468,54 @@ pub fn run() {
                             if member_menu.pending_status {
                                 member_menu.pending_status = false;
                                 game_state = GameState::MemberStatus;
-                                member_status.open(&mut window_engine, &mut vram, &mut sprite_palette);
-                            } else {
+                                
+                                let idx = member_menu.selected_member;
+                                let member = &force_members[idx];
+                                let sprite_map = crate::game::map::entities::load_sprite_names();
+
+                                // 1. Определяем тип класса (BASE, PROMO, SPECIAL) из classtypes.asm
+                                let ctype = class_types.get(&member.class).map(|s| s.as_str()).unwrap_or("BASE");
+
+                                // 2. Выбираем правильный суффикс
+                                let suffix = match ctype {
+                                    "PROMO" => "_PROMO",
+                                    "SPECIAL" => "_SPECIAL",
+                                    _ => "_BASE",
+                                };
+
+                                // 3. Отрезаем старый суффикс (например, SARAH_PROMO -> SARAH)
+                                let base_char_name = member.mapsprite
+                                    .replace("_PROMO", "")
+                                    .replace("_SPECIAL", "")
+                                    .replace("_BASE", "");
+
+                                // 4. Собираем имя для поиска в mapspritenames.txt
+                                let mut lookup = format!("MAPSPRITE_{}{}", base_char_name, suffix);
+                                
+                                // 5. Защита: если такого спрайта нет (например, у Хигинса нет BASE), 
+                                // перебираем все возможные варианты.
+                                if !sprite_map.contains_key(&lookup) {
+                                    for alt in ["_BASE", "_PROMO", "_SPECIAL"] {
+                                        let try_name = format!("MAPSPRITE_{}{}", base_char_name, alt);
+                                        if sprite_map.contains_key(&try_name) {
+                                            lookup = try_name;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                let map_sprite_id = *sprite_map.get(&lookup).unwrap_or(&0);
+                                
+                                member_status.open(
+                                    &mut window_engine, 
+                                    &mut vram, 
+                                    &mut sprite_palette,
+                                    idx,
+                                    map_sprite_id,
+                                );
+                            }
+
+                            else {
                                 game_state = GameState::Menu;
                                 menu_open = true;
                                 menu_anim_timer = 20;
@@ -456,6 +534,10 @@ pub fn run() {
                     }
                     should_render = true;
                 }
+
+                // ==============================================================
+                // ====== MEMBER STATUS (Статус персонажа: ATT/DEF/KILLS) ======
+                // ==============================================================
                 GameState::MemberStatus => {
                     let mut is_animating = false;
                     if let Some(s) = member_status.window_slot_portrait { if window_engine.entries[s].is_animating() { is_animating = true; } }
@@ -487,8 +569,18 @@ pub fn run() {
                         
                         if all_done {
                             member_status.close(&mut window_engine);
+                            
+                            // Запоминаем, кого смотрели, чтобы вернуться на него же
+                            let saved_selected = member_status.member_index;
+                            
                             game_state = GameState::MemberMenu; 
                             member_menu.open(&mut window_engine, &mut vram, &mut sprite_palette);
+                            
+                            // Восстанавливаем выбор и портрет
+                            member_menu.selected_member = saved_selected;
+                            member_menu.clamp_scroll(force_members.len());
+                            member_menu.update_portrait(&mut vram, &mut sprite_palette, saved_selected);
+                            
                             last_input = current_input;
                         }
                     } else {
@@ -496,10 +588,14 @@ pub fn run() {
                     }
 
                     if !member_status.closing {
-                        member_status.draw(&mut window_engine, &force_members[0]);
+                        member_status.draw(&mut window_engine, &force_members[member_status.member_index]);
                     }
                     should_render = true;
                 }
+
+                // ==============================================================
+                // ====== MAGIC MENU (Список заклинаний отряда) ================
+                // ==============================================================
                 GameState::MagicMenu => {
                     let mut is_animating = false;
                     if let Some(s) = magic_menu.window_slot_portrait { if window_engine.entries[s].is_animating() { is_animating = true; } }
@@ -516,19 +612,41 @@ pub fn run() {
                             magic_menu.start_closing_animation(&mut window_engine);
                             last_input = current_input;
                         } else {
-                            if current_input != last_input {
-                                let mut changed = false;
-                                if (current_input & INPUT_UP) != 0 && magic_menu.selected_member > 0 {
-                                    magic_menu.selected_member -= 1;
-                                    changed = true;
+                            let up_pressed = (current_input & INPUT_UP) != 0;
+                            let down_pressed = (current_input & INPUT_DOWN) != 0;
+                            let mut changed = false;
+
+                            if up_pressed || down_pressed {
+                                if current_input != last_input {
+                                    if up_pressed && magic_menu.selected_member > 0 {
+                                        magic_menu.selected_member -= 1;
+                                        changed = true;
+                                    } else if down_pressed && magic_menu.selected_member < force_members.len() - 1 {
+                                        magic_menu.selected_member += 1;
+                                        changed = true;
+                                    }
+                                    magic_menu.nav_timer = 20;
+                                } else {
+                                    if magic_menu.nav_timer > 0 {
+                                        magic_menu.nav_timer -= 1;
+                                    } else {
+                                        if up_pressed && magic_menu.selected_member > 0 {
+                                            magic_menu.selected_member -= 1;
+                                            changed = true;
+                                        } else if down_pressed && magic_menu.selected_member < force_members.len() - 1 {
+                                            magic_menu.selected_member += 1;
+                                            changed = true;
+                                        }
+                                        magic_menu.nav_timer = 6;
+                                    }
                                 }
-                                else if (current_input & INPUT_DOWN) != 0 && magic_menu.selected_member < force_members.len() - 1 {
-                                    magic_menu.selected_member += 1;
-                                    changed = true;
-                                }
-                                if changed {
-                                    magic_menu.clamp_scroll(force_members.len());
-                                }
+                            } else {
+                                magic_menu.nav_timer = 0;
+                            }
+
+                            if changed {
+                                magic_menu.clamp_scroll(force_members.len());
+                                magic_menu.update_portrait(&mut vram, &mut sprite_palette, magic_menu.selected_member);
                             }
                             last_input = current_input;
                         }
@@ -561,6 +679,9 @@ pub fn run() {
             }
         }
 
+        // ==============================================================
+        // ====== ОТРИСОВКА КАДРА (рисуем то, что видит игрок) ==========
+        // ==============================================================
         if should_render {
             if game_state == GameState::Map || game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus || game_state == GameState::MagicMenu {
                 renderer.texture.with_lock(None, |buffer, pitch| {
@@ -568,29 +689,30 @@ pub fn run() {
                     let p_x = player_state.pixel_x / 16;
                     let p_y = player_state.pixel_y / 16;
 
-                    // 1. Рисуем нижний слой карты (землю)
+                    // 1. Нижний слой карты
                     map::draw::draw_map(buffer, pitch, &map_data, &map_state, 0, p_x, p_y);
                     
-                    // 2. Рисуем NPC (из кэша по ID)
+                    // 2. NPC
                     for entity in &map_data.entities {
                         if let Some(spr) = map_sprites.get(&entity.sprite_id) {
                             player::draw_entity(buffer, pitch, entity, spr, map_state.view_x - 32, map_state.view_y, &sprite_palette);
                         }
                     }
 
-                    // 3. Рисуем игрока (Боуи)
+                    // 3. Игрок
                     if let Some(bowie_spr) = map_sprites.get(&0) {
                         player::draw_player(buffer, pitch, bowie_spr, &player_state, map_state.view_x - 32, map_state.view_y, &sprite_palette);
                     }
                     
-                    // 4. Рисуем верхний слой (крыши, верхушки деревьев)
+                    // 4. Верхний слой карты
                     map::draw::draw_map(buffer, pitch, &map_data, &map_state, 1, p_x, p_y);
                     
+                    // 5. Окна меню
                     if game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus || game_state == GameState::MagicMenu {
                         window_engine.draw_windows(buffer, pitch, &vram, &sprite_palette, menu_anim_timer, menu_choice, 32);
                     }
 
-                    // Рамки выделения для меню магии и меню персонажей
+                    // 6. Рамки выделения
                     if game_state == GameState::MagicMenu && !magic_menu.closing {
                         magic_menu.draw_highlight(buffer, pitch, &window_engine, frame_counter);
                     }
@@ -598,12 +720,14 @@ pub fn run() {
                         member_menu.draw_highlight(buffer, pitch, &window_engine, frame_counter);
                     }
 
+                    // 7. Текст в Diamond Menu
                     if game_state == GameState::Menu {
                         if let Some(slot) = diamond_menu_slot {
                             menu::draw_menu::draw_menu(buffer, pitch, &mut window_engine, slot, menu_choice);
                         }
                     }
 
+                    // 8. Спрайт персонажа в MemberStatus
                     if game_state == GameState::MemberStatus && !member_status.closing {
                         member_status.draw_sprite_overlay(buffer, pitch, &vram, &window_engine, &sprite_palette);
                     }

@@ -17,7 +17,8 @@ pub struct MemberStatusState {
     pub blink_timer: u16,
     pub eyes_closed: bool,
     pub anim_timer: u16,
-    pub anim_frame: u16,    // Текущий кадр (0 или 1)
+    pub anim_frame: u16,
+    pub member_index: usize, // НОВОЕ
 }
 
 impl MemberStatusState {
@@ -33,16 +34,25 @@ impl MemberStatusState {
             eyes_closed: false,
             anim_timer: 20,
             anim_frame: 0,
+            member_index: 0,
         }
     }
 
-    pub fn open(&mut self, window_engine: &mut WindowEngine, vram: &mut Vram, global_palette: &mut Vec<Color>) {
+    pub fn open(
+        &mut self, 
+        window_engine: &mut WindowEngine, 
+        vram: &mut Vram, 
+        global_palette: &mut Vec<Color>,
+        member_index: usize,
+        map_sprite_id: u8,
+    ) {
+        self.member_index = member_index;
         self.closing = false;
         self.blink_timer = 120;
         self.eyes_closed = false;
 
-        // 1. Грузим портрет в зону 0xE000
-        if let Some(p_data) = load_portrait(0) {
+        // 1. Портрет по индексу
+        if let Some(p_data) = load_portrait(member_index) {
             let _ = vram.write_bytes(VRAM_PORTRAITS, &p_data.tiles);
             for (i, c) in p_data.palette.iter().enumerate() {
                 if 16 + i < global_palette.len() {
@@ -52,7 +62,7 @@ impl MemberStatusState {
             self.portrait_data = Some(p_data);
         }
 
-        // 2. ЖЕСТКИЙ ФИКС ПАЛИТРЫ ДЛЯ ИКОНОК (Банк 3)
+        // 2. Фикс палитры для иконок
         global_palette[48] = sdl3::pixels::Color::RGB(0, 0, 0);
         global_palette[49] = sdl3::pixels::Color::RGB(255, 255, 255);
         global_palette[50] = sdl3::pixels::Color::RGB(139, 69, 19);
@@ -60,7 +70,7 @@ impl MemberStatusState {
         global_palette[52] = sdl3::pixels::Color::RGB(255, 255, 0);
         global_palette[53] = sdl3::pixels::Color::RGB(128, 128, 128);
 
-        // 3. Грузим иконки в зону 0x4000
+        // 3. Иконки
         if let Ok(data) = std::fs::read("src/data/graphics/icons/item/icon071.bin") {
             let offset = VRAM_UI_ICONS + (71 * 192);
             let _ = vram.write_bytes(offset, &data);
@@ -78,9 +88,7 @@ impl MemberStatusState {
             window_engine.move_window(slot, 0x0201, 4);
             let start = window_engine.entries[slot].layout_start_index;
             let width = 8;
-            
             let portrait_base_tile = (VRAM_PORTRAITS / 32) as u16;
-
             for r in 0..8 {
                 for c in 0..6 {
                     let idx = start + ((r + 1) * width + (c + 1));
@@ -105,7 +113,9 @@ impl MemberStatusState {
             window_engine.move_window(slot, 0x0217, 4);
         }
 
-        if let Ok(raw) = std::fs::read("src/data/graphics/mapsprites/mapsprite000-2.bin") {
+        // 4. Маленький спрайт для окна KILLS — по правильному ID
+        let path = format!("src/data/graphics/mapsprites/mapsprite{:03}-2.bin", map_sprite_id);
+        if let Ok(raw) = std::fs::read(&path) {
             let d = decompressor::decompress_basic(&raw);
             if d.len() >= 576 {
                 let mut reordered = vec![0u8; 576];
@@ -156,11 +166,10 @@ impl MemberStatusState {
             }
         }
 
-        // Анимация шага для спрайта
         if self.anim_timer > 0 {
             self.anim_timer -= 1;
         } else {
-            self.anim_timer = 20; // Скорость анимации (20 кадров = ~0.3 сек)
+            self.anim_timer = 20;
             self.anim_frame = if self.anim_frame == 0 { 1 } else { 0 };
         }
     }
@@ -277,7 +286,7 @@ impl MemberStatusState {
             let spr_y = win_y + 2 * 8; 
 
             let tile_base = (VRAM_MAP_SPRITES / 32) as u16;
-            let frame_offset = self.anim_frame * 9; // 9 тайлов на кадр
+            let frame_offset = self.anim_frame * 9;
 
             for r in 0..3 {
                 for c in 0..3 {
@@ -288,6 +297,7 @@ impl MemberStatusState {
                                 let byte = tile[py * 4 + (px / 2)];
                                 let ci = if px % 2 == 0 { (byte >> 4) & 0x0F } else { byte & 0x0F } as usize;
                                 
+                                // ВОТ ОНА, СПАСИТЕЛЬНАЯ СТРОКА:
                                 if ci == 0 { continue; }
                                 
                                 let c_color = palette[ci];

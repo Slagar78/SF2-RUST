@@ -181,7 +181,6 @@ impl WindowEngine {
         let start_offset = entry.layout_start_index + (y as usize * width + x as usize);
 
         for (i, ch) in text.chars().enumerate() {
-            // ЗАЩИТА: если текст доходит до правой рамки (width - 1), обрубаем его
             if x as usize + i >= width - 1 { break; } 
             if ch == '\0' { break; }
             
@@ -241,12 +240,10 @@ impl WindowEngine {
                         let tx = x_pos + c * 8;
                         let mut ty = y_pos + r * 8;
 
-                        // Сдвиг для стрелок
                         if tile_idx >= 0x0312 && tile_idx <= 0x0335 {
                             ty += 4;
                         }
 
-                        // Если это иконка магии, сначала рисуем под ней синий фон (VDPTILE_SPACE = 0x20)
                         let is_magic_icon = tile_idx >= 0x140 && tile_idx <= 0x150;
                         if is_magic_icon {
                             if let Some(bg_tile) = vram.tile(0x20) {
@@ -269,7 +266,6 @@ impl WindowEngine {
                             }
                         }
 
-                        // Теперь рисуем саму иконку/тайл
                         for py in 0..8 {
                             for px in 0..8 {
                                 let src_col = if h_flip { 7 - px } else { px };

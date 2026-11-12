@@ -28,7 +28,7 @@ pub struct MapEntity {
     pub idle_timer: u16,
 }
 
-fn load_sprite_names() -> HashMap<String, u8> {
+pub fn load_sprite_names() -> HashMap<String, u8> {
     let mut map = HashMap::new();
     let path = "src/data/graphics/mapsprites/mapspritenames.txt";
     if let Ok(content) = fs::read_to_string(path) {

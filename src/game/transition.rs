@@ -20,6 +20,11 @@ pub struct TransitionState {
 }
 
 impl TransitionState {
+
+    pub fn is_fading_out(&self) -> bool {
+        self.state == FadeState::FadeOut
+    }
+
     pub fn new() -> Self {
         Self {
             state: FadeState::None,

@@ -3,7 +3,7 @@ use crate::game::menu::window_engine::{
     WindowEngine, VDPTILE_PALETTE2, VDPTILE_PALETTE3, VDPTILE_PRIORITY
 };
 use crate::game::ally_parser::Combatant;
-use crate::game::menu::portrait::PortraitData;
+use crate::game::menu::portrait::{load_portrait, PortraitData};
 use crate::game::menu::layouts;
 use crate::engine::base_tiles::{Vram, VRAM_PORTRAITS, VRAM_UI_ICONS};
 use sdl3::pixels::Color;
@@ -18,6 +18,7 @@ pub struct MagicMenuState {
     pub closing: bool,
     pub selected_member: usize,
     pub scroll_offset: usize,
+    pub nav_timer: u16,
 }
 
 impl MagicMenuState {
@@ -30,28 +31,17 @@ impl MagicMenuState {
             closing: false,
             selected_member: 0,
             scroll_offset: 0,
+            nav_timer: 0,
         }
     }
 
-    pub fn open(&mut self, window_engine: &mut WindowEngine, vram: &mut Vram, global_palette: &mut Vec<Color>, p_data: Option<PortraitData>) {
+    pub fn open(&mut self, window_engine: &mut WindowEngine, vram: &mut Vram, global_palette: &mut Vec<Color>) {
         self.closing = false;
         self.selected_member = 0;
         self.scroll_offset = 0;
+        self.nav_timer = 0;
 
-        if let Some(p_data) = p_data {
-            let _ = vram.write_bytes(VRAM_PORTRAITS, &p_data.tiles);
-            for (i, c) in p_data.palette.iter().enumerate() {
-                if 16 + i < global_palette.len() {
-                    global_palette[16 + i] = *c;
-                }
-            }
-            self.portrait_data = Some(p_data);
-        }
-
-        // ХАК ДЛЯ ОРАНЖЕВОГО ЦВЕТА: перекрашиваем Банк 3 (индекс 49) в оранжевый
-        if global_palette.len() > 49 {
-            global_palette[49] = Color::RGB(255, 116, 0); 
-        }
+        self.update_portrait(vram, global_palette, 0);
 
         if let Ok(data) = std::fs::read("src/data/graphics/icons/spell/icon010.bin") {
             let offset = VRAM_UI_ICONS + 0x800;
@@ -85,6 +75,18 @@ impl MagicMenuState {
         self.window_slot_list = window_engine.create_empty_window(0x0220, 29, 13);
         if let Some(slot) = self.window_slot_list {
             window_engine.move_window(slot, 0x020E, 4);
+        }
+    }
+
+    pub fn update_portrait(&mut self, vram: &mut Vram, global_palette: &mut Vec<Color>, member_index: usize) {
+        if let Some(p_data) = load_portrait(member_index) {
+            let _ = vram.write_bytes(VRAM_PORTRAITS, &p_data.tiles);
+            for (i, c) in p_data.palette.iter().enumerate() {
+                if 16 + i < global_palette.len() {
+                    global_palette[16 + i] = *c;
+                }
+            }
+            self.portrait_data = Some(p_data);
         }
     }
 
@@ -142,9 +144,7 @@ impl MagicMenuState {
         if members.is_empty() { return; }
         let member = &members[self.selected_member.min(members.len() - 1)];
 
-        // --- SUMMARY WINDOW (MAGIC) ---
         if let Some(slot) = self.window_slot_summary {
-            // Чистим всё окно нормально (19 пробелов начиная с x=1)
             for i in 0..11 {
                 window_engine.write_string(slot, 1, 1 + i, "                   "); 
             }
@@ -167,23 +167,7 @@ impl MagicMenuState {
                 self.draw_icon(window_engine, slot, 5, 5, egress_tile);
             } else {
                 self.draw_icon(window_engine, slot, 5, 5, empty_tile);
-                
-                // Пишем "Nothing" на месте заклинания (x=12, y=3)
                 window_engine.write_string(slot, 12, 3, "Nothing");
-                
-                // Принудительно меняем палитровый банк на 3-й (0x6000) для этих букв
-                let start_offset = window_engine.entries[slot].layout_start_index;
-                let width = ((window_engine.entries[slot].width_height >> 8) & 0xFF) as usize;
-                let text_idx_start = start_offset + (3 * width + 12);
-                
-                for i in 0..7 { // Длина слова "Nothing" = 7
-                    let idx = text_idx_start + i;
-                    if idx < window_engine.window_tile_layouts.len() {
-                        // Срезаем старые банки и ставим 3-й (VDPTILE_PALETTE2 | VDPTILE_PALETTE3)
-                        window_engine.window_tile_layouts[idx] = 
-                            (window_engine.window_tile_layouts[idx] & !0x6000) | 0x6000;
-                    }
-                }
             }
 
             self.draw_icon(window_engine, slot, 2, 7, empty_tile);
@@ -191,9 +175,7 @@ impl MagicMenuState {
             self.draw_icon(window_engine, slot, 5, 9, empty_tile);
         }
 
-        // --- ROSTER LIST WINDOW ---
         if let Some(slot) = self.window_slot_list {
-            // ИСПРАВЛЕНИЕ РАМКИ: останавливаем цикл на строке 11 (5-й персонаж)
             for i in 0..((VISIBLE_MEMBERS as u8 * 2) - 1) {
                 window_engine.write_string(slot, 1, 3 + i, "                          ");
             }

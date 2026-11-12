@@ -17,6 +17,7 @@ pub struct MemberMenuState {
     pub selected_member: usize,
     pub pending_status: bool,
     pub scroll_offset: usize,
+    pub nav_timer: u16,
 }
 
 impl MemberMenuState {
@@ -30,6 +31,7 @@ impl MemberMenuState {
             selected_member: 0,
             pending_status: false,
             scroll_offset: 0,
+            nav_timer: 0,
         }
     }
 
@@ -38,6 +40,7 @@ impl MemberMenuState {
         self.pending_status = false;
         self.selected_member = 0;
         self.scroll_offset = 0;
+        self.nav_timer = 0;
 
         if let Some(p_data) = load_portrait(0) {
             let _ = vram.write_bytes(VRAM_PORTRAITS, &p_data.tiles);
@@ -72,6 +75,18 @@ impl MemberMenuState {
         self.window_slot_list = window_engine.create_empty_window(0x0220, 29, 13);
         if let Some(slot) = self.window_slot_list {
             window_engine.move_window(slot, 0x020E, 4);
+        }
+    }
+
+    pub fn update_portrait(&mut self, vram: &mut Vram, global_palette: &mut Vec<Color>, member_index: usize) {
+        if let Some(p_data) = load_portrait(member_index) {
+            let _ = vram.write_bytes(VRAM_PORTRAITS, &p_data.tiles);
+            for (i, c) in p_data.palette.iter().enumerate() {
+                if 16 + i < global_palette.len() {
+                    global_palette[16 + i] = *c;
+                }
+            }
+            self.portrait_data = Some(p_data);
         }
     }
 
@@ -119,9 +134,7 @@ impl MemberMenuState {
         if members.is_empty() { return; }
         let member = &members[self.selected_member.min(members.len() - 1)];
 
-        // --- SUMMARY WINDOW (MAGIC + ITEM) ---
         if let Some(slot) = self.window_slot_summary {
-            // Очищаем окно (высота окна 13, y=12 это нижняя рамка, поэтому чистим до 11)
             for i in 0..11 {
                 window_engine.write_string(slot, 1, 1 + i, "                   "); 
             }
@@ -130,64 +143,88 @@ impl MemberMenuState {
             window_engine.write_string(slot, 9, 1, &member.class);
             window_engine.write_string(slot, 15, 1, &format!("L{}", member.level));
 
-            window_engine.write_string(slot, 2, 3, "MAGIC");
-            window_engine.write_string(slot, 13, 3, "ITEM");
+            window_engine.write_string(slot, 1, 3, "MAGIC");
+            window_engine.write_string(slot, 12, 3, "ITEM");
 
-            // Вывод заклинаний
-            for (i, (spell, lvl)) in member.spells.iter().enumerate() {
-                let y_base = 4 + (i as u8 * 2);
-                let spell_str: String = spell.chars().take(10).collect();
-                window_engine.write_string(slot, 2, y_base, &spell_str);
-                window_engine.write_string(slot, 2, y_base + 1, &format!("Level {}", lvl));
+            let start = window_engine.entries[slot].layout_start_index;
+            let width = ((window_engine.entries[slot].width_height >> 8) & 0xFF) as usize;
+            
+            let idx_magic = start + (3 * width + 1);
+            for i in 0..5 {
+                let idx = idx_magic + i;
+                if idx < window_engine.window_tile_layouts.len() {
+                    window_engine.window_tile_layouts[idx] = 
+                        (window_engine.window_tile_layouts[idx] & !0x6000) | 0x6000;
+                }
             }
 
-            // Вывод предметов
-            let mut item_y = 4;
-            for item in member.items.iter() {
-                let item_str = item.trim();
-                
-                if item_str.contains('\n') {
-                    let lines: Vec<&str> = item_str.split('\n').collect();
-                    for (idx, line) in lines.iter().enumerate() {
-                        let safe_line: String = line.chars().take(7).collect();
-                        window_engine.write_string(slot, 13, item_y + idx as u8, &safe_line);
-                    }
-                    item_y += lines.len() as u8;
-                } else if item_str.len() > 7 {
-                    if let Some(idx) = item_str[..7].rfind(' ') {
-                        let (p1, p2) = item_str.split_at(idx);
-                        window_engine.write_string(slot, 13, item_y, p1);
-                        let safe_p2: String = p2.chars().take(7).collect();
-                        window_engine.write_string(slot, 13, item_y + 1, &safe_p2); 
-                        item_y += 2;
+            let idx_item = start + (3 * width + 12);
+            for i in 0..4 {
+                let idx = idx_item + i;
+                if idx < window_engine.window_tile_layouts.len() {
+                    window_engine.window_tile_layouts[idx] = 
+                        (window_engine.window_tile_layouts[idx] & !0x6000) | 0x6000;
+                }
+            }
+
+            if member.spells.is_empty() {
+                window_engine.write_string(slot, 1, 4, "Nothing");
+            } else {
+                for (i, (spell, lvl)) in member.spells.iter().enumerate() {
+                    let y_base = 4 + (i as u8 * 2);
+                    let spell_str: String = spell.chars().take(10).collect(); 
+                    window_engine.write_string(slot, 1, y_base, &spell_str);
+                    window_engine.write_string(slot, 1, y_base + 1, &format!("Level {}", lvl));
+                }
+            }
+
+            if member.items.is_empty() {
+                window_engine.write_string(slot, 12, 4, "Nothing");
+            } else {
+                let mut item_y = 4;
+                for item in member.items.iter() {
+                    let item_str = item.trim();
+                    
+                    if item_str.contains('\n') {
+                        let lines: Vec<&str> = item_str.split('\n').collect();
+                        for (idx, line) in lines.iter().enumerate() {
+                            let safe_line: String = line.chars().take(7).collect(); 
+                            window_engine.write_string(slot, 12, item_y + idx as u8, &safe_line);
+                        }
+                        item_y += lines.len() as u8;
+                    } else if item_str.len() > 7 {
+                        if let Some(idx) = item_str[..7].rfind(' ') {
+                            let (p1, p2) = item_str.split_at(idx);
+                            window_engine.write_string(slot, 12, item_y, p1);
+                            let safe_p2: String = p2.chars().take(7).collect();
+                            window_engine.write_string(slot, 12, item_y + 1, &safe_p2); 
+                            item_y += 2;
+                        } else {
+                            let (p1, p2) = item_str.split_at(7);
+                            let safe_p1: String = p1.chars().take(7).collect();
+                            let safe_p2: String = p2.chars().take(7).collect();
+                            window_engine.write_string(slot, 12, item_y, &safe_p1);
+                            window_engine.write_string(slot, 12, item_y + 1, &safe_p2);
+                            item_y += 2;
+                        }
                     } else {
-                        let (p1, p2) = item_str.split_at(7);
-                        let safe_p1: String = p1.chars().take(7).collect();
-                        let safe_p2: String = p2.chars().take(7).collect();
-                        window_engine.write_string(slot, 13, item_y, &safe_p1);
-                        window_engine.write_string(slot, 13, item_y + 1, &safe_p2);
-                        item_y += 2;
+                        let safe_str: String = item_str.chars().take(7).collect();
+                        window_engine.write_string(slot, 12, item_y, &safe_str);
+                        item_y += 1;
                     }
-                } else {
-                    let safe_str: String = item_str.chars().take(7).collect();
-                    window_engine.write_string(slot, 13, item_y, &safe_str);
-                    item_y += 1;
                 }
             }
         }
 
-        // --- ROSTER LIST WINDOW ---
         if let Some(slot) = self.window_slot_list {
-            // ИСПРАВЛЕНИЕ: останавливаем цикл на строке 11 (5-й персонаж), 
-            // чтобы не затереть нижнюю рамку (y=12)
             for i in 0..((VISIBLE_MEMBERS as u8 * 2) - 1) {
                 window_engine.write_string(slot, 1, 3 + i, "                           ");
             }
 
             window_engine.write_string(slot, 2, 1, "NAME");
-            window_engine.write_string(slot, 11, 1, "CLASS");
-            window_engine.write_string(slot, 21, 1, "LEV");
-            window_engine.write_string(slot, 25, 1, "EXP");
+            window_engine.write_string(slot, 10, 1, "CLASS");
+            window_engine.write_string(slot, 20, 1, "LEV");
+            window_engine.write_string(slot, 24, 1, "EXP");
 
             for (i, m) in members.iter().skip(self.scroll_offset).take(VISIBLE_MEMBERS).enumerate() {
                 let y = 3 + (i as u8 * 2);
