@@ -113,7 +113,7 @@ pub fn run() {
     let _all_items = item_parser::load_items();
 
     let mut transition = transition::TransitionState::new();
-    let _game_flags = flags::GameFlags::new();
+    let mut game_flags = flags::GameFlags::new();
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -300,9 +300,9 @@ pub fn run() {
 
                     // 5. Открываем Diamond Menu
                     if pending_menu_open && !menu_open {
-                        if !player_state.is_moving() && map_state.can_open_menu() {
+                          if !player_state.is_moving() && map_state.can_open_menu() {
                             pending_menu_open = false; 
-                            player_state.interact(&mut map_data);
+                            player_state.interact(&mut map_data, &mut game_flags);
                             
                             game_state = GameState::Menu;
                             menu_open = true;

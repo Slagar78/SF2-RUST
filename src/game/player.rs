@@ -5,9 +5,6 @@ use crate::engine::input::{INPUT_UP, INPUT_DOWN, INPUT_LEFT, INPUT_RIGHT};
 use crate::game::map::events::{check_tile_events, MapEventResult, MapEventsState};
 use crate::game::map::entities::MapEntity;
 
-// Tile size in fixed-point units: 24 real px per tile × 16 = 384.
-// All pixel coordinates in this module are stored ×16 so movement can advance
-// by sub-pixel amounts without float math (divide by 16 to get screen pixels).
 pub const TILE_SIZE_FIXED: i32 = 24 * 16;
 
 // Each 8x8 4bpp tile is 32 bytes: 8 rows × 4 bytes per row.
@@ -238,8 +235,8 @@ impl PlayerState {
         Some(MoveResult::None)
     }
 
-    pub fn interact(&mut self, map: &mut MapData) {
-        crate::game::map::events::interact(self, map);
+    pub fn interact(&mut self, map: &mut MapData, flags: &mut crate::game::flags::GameFlags) {
+        crate::game::map::events::interact(self, map, flags);
     }
 
     pub fn tick(&mut self, map: &mut MapData, events: &mut MapEventsState) {
@@ -292,14 +289,11 @@ pub struct PlayerSprites {
     pub side: Vec<u8>,
 }
 
-/// Load and decompress one map-sprite sheet (Basic compression).
-/// Missing files log a warning and yield an empty vec so the game can still
-/// run without a complete asset set.
 fn load_sheet(name: &str) -> Vec<u8> {
     let path = format!("src/data/graphics/mapsprites/{}", name);
     let raw = match std::fs::read(&path) {
         Ok(r) => r,
-        Err(_) => { eprintln!("[player] Файл не найден: {}", name); return vec![]; }
+        Err(_) => { return vec![]; } // <-- Убрали eprintln
     };
     let d = decompressor::decompress_basic(&raw);
     println!("[player] {} -> {} байт", name, d.len());
@@ -343,6 +337,22 @@ pub fn load_mapsprite(id: u8) -> PlayerSprites {
     let mut up   = load_sheet(&format!("mapsprite{:03}-0.bin", id));
     let mut side = load_sheet(&format!("mapsprite{:03}-1.bin", id));
     let mut down = load_sheet(&format!("mapsprite{:03}-2.bin", id));
+
+    // УМНЫЙ ФОЛБЭК: если файла нет, используем то, что загрузилось
+    if up.is_empty() {
+        if !side.is_empty() { up = side.clone(); }
+        else if !down.is_empty() { up = down.clone(); }
+    }
+    
+    if side.is_empty() {
+        if !down.is_empty() { side = down.clone(); }
+        else if !up.is_empty() { side = up.clone(); }
+    }
+    
+    if down.is_empty() {
+        if !side.is_empty() { down = side.clone(); }
+        else if !up.is_empty() { down = up.clone(); }
+    }
 
     for sheet in [&mut down, &mut up, &mut side] {
         let frames = sheet.len() / FRAME_BYTES;

@@ -173,7 +173,7 @@ pub fn check_tile_events(_player: &mut PlayerState, map: &mut MapData, events: &
     MapEventResult::None
 }
 
-pub fn interact(player: &mut PlayerState, map: &mut MapData) {
+pub fn interact(player: &mut PlayerState, map: &mut MapData, flags: &mut crate::game::flags::GameFlags) {
     let (dx, dy) = match player.facing {
         Facing::Up    => (0, -1),
         Facing::Down  => (0,  1),
@@ -195,10 +195,20 @@ pub fn interact(player: &mut PlayerState, map: &mut MapData) {
     }
 
     if let Some(index) = found_item {
-        let item = map.items.remove(index);
-        println!("🎁 ВЫ НАШЛИ ПРЕДМЕТ! ID: {}", item.item_id);
-        map.layout[target_idx].flags = 0x0000; 
-    } else {
+        let item = map.items[index]; // Копируем данные
+        
+        // Если флаг еще не установлен (сундук не открыт)
+        if !flags.get(item.flag) {
+            flags.set(item.flag); // Ставим флаг
+            map.items.remove(index); // Удаляем с карты
+            println!("🎁 ВЫ НАШЛИ ПРЕДМЕТ! ID: {}", item.item_id);
+            map.layout[target_idx].flags = 0x0000; 
+        } else {
+            // Если флаг уже стоит, предмет уже забрали
+            // println!("Сундук пуст.");
+        }
+    }
+    else {
 
     }
 }

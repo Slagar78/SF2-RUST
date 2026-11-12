@@ -118,10 +118,40 @@ pub fn load_map_data(map_id: u8) -> MapData {
     let roof_events = paths.roof_events;
     let areas = paths.areas;
 
-    let items = vec![
-        MapItem { x: 6, y: 18, flag: 220, item_id: 0 },
-        MapItem { x: 59, y: 17, flag: 128, item_id: 1 },
-    ];
+    let mut items = Vec::new();
+    let all_items = crate::game::item_parser::load_items(); // Берем список всех предметов
+    
+    // Функция для превращения "MEDICAL_HERB" в ID (0)
+    let get_item_id = |asm_name: &str| -> u8 {
+        if asm_name == "NOTHING" { return 255; } // 255 = пустой предмет
+        let disp_name = asm_name.split('_')
+            .filter(|w| !w.is_empty())
+            .map(|w| {
+                let mut c = w.chars();
+                match c.next() {
+                    Some(f) => f.to_uppercase().collect::<String>() + &c.as_str().to_lowercase(),
+                    None => String::new(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+            
+        for (idx, item) in all_items.iter().enumerate() {
+            // Очищаем переносы строк из item_parser для сравнения
+            let clean_name = item.name.replace("\n ", " ").replace("\n", " ");
+            if clean_name == disp_name {
+                return idx as u8;
+            }
+        }
+        0 
+    };
+
+    for (x, y, flag, name) in paths.chest_items {
+        items.push(MapItem { x, y, flag, item_id: get_item_id(&name) });
+    }
+    for (x, y, flag, name) in paths.other_items {
+        items.push(MapItem { x, y, flag, item_id: get_item_id(&name) });
+    }
 
     // 10. АНИМАЦИИ (ДИНАМИЧЕСКИ, С УЧЕТОМ $FFFFFFFF)
     let mut animations = Vec::new();

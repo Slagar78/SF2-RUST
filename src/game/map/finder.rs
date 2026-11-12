@@ -21,6 +21,8 @@ pub struct MapPaths {
     pub roof_events: Vec<RoofEvent>,
     pub warps: Vec<Warp>,
     pub anim_data: Option<(u8, usize, usize)>,
+    pub chest_items: Vec<(u8, u8, u16, String)>, // x, y, flag, item_name
+    pub other_items: Vec<(u8, u8, u16, String)>, // x, y, flag, item_name
 }
 
 pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
@@ -57,6 +59,8 @@ pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
         roof_events: Vec::new(),
         warps: Vec::new(),
         anim_data: None,
+        chest_items: Vec::new(),
+        other_items: Vec::new(),
     };
 
     // 2. Ищем пути в entries.asm (ДИНАМИЧЕСКИ)
@@ -267,6 +271,46 @@ pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
             if src_id > 0 && length > 0 {
                 let dest_offset = dest_addr.saturating_sub(0x300);
                 paths.anim_data = Some((src_id, dest_offset, length));
+            }
+        }
+    }
+
+    // 9. Сундуки (Chest Items)
+    if !paths.chest_items_path.is_empty() {
+        if let Ok(content) = fs::read_to_string(format!("src/{}", paths.chest_items_path)) {
+            for line in content.lines() {
+                let clean = line.split(';').next().unwrap().trim();
+                  if clean.starts_with("mapItem ") {
+                    let stripped = clean.replace("mapItem ", "");
+                    let args: Vec<&str> = stripped.split(',').map(|s| s.trim()).collect();
+                    if args.len() >= 4 {
+                        let x = args[0].parse().unwrap_or(0);
+                        let y = args[1].parse().unwrap_or(0);
+                        let flag = args[2].parse().unwrap_or(0);
+                        let item_name = args[3].to_string();
+                        paths.chest_items.push((x, y, flag, item_name));
+                    }
+                }
+            }
+        }
+    }
+
+    // 10. Предметы на земле (Other Items)
+    if !paths.other_items_path.is_empty() {
+        if let Ok(content) = fs::read_to_string(format!("src/{}", paths.other_items_path)) {
+            for line in content.lines() {
+                let clean = line.split(';').next().unwrap().trim();
+                  if clean.starts_with("mapItem ") {
+                    let stripped = clean.replace("mapItem ", "");
+                    let args: Vec<&str> = stripped.split(',').map(|s| s.trim()).collect();
+                    if args.len() >= 4 {
+                        let x = args[0].parse().unwrap_or(0);
+                        let y = args[1].parse().unwrap_or(0);
+                        let flag = args[2].parse().unwrap_or(0);
+                        let item_name = args[3].to_string();
+                        paths.other_items.push((x, y, flag, item_name));
+                    }
+                }
             }
         }
     }

@@ -18,26 +18,32 @@ pub fn load_items() -> Vec<Item> {
     if let Ok(content) = fs::read_to_string("src/data/stats/items/itemnames.asm") {
         for line in content.lines() {
             let clean = line.split(';').next().unwrap().trim();
-            if clean.starts_with("itemName ") {
-                let raw = clean.trim_start_matches("itemName").trim();
+            // Ищем "itemName " где угодно в строке, чтобы поймать "table_ItemNames:itemName"
+            if let Some(idx) = clean.find("itemName ") {
+                let raw = clean[idx + 9..].trim(); // 9 - длина "itemName "
                 let mut name = String::new();
                 
-                // Разбиваем на токены по запятым и пробелам. 
-                // Например: '"Short", 13, "Axe"' -> ['"Short"', '13', '"Axe"']
-                let tokens: Vec<&str> = raw.split(|c: char| c == ',' || c.is_whitespace()).filter(|s| !s.is_empty()).collect();
+                // Разбиваем по кавычкам. 
+                // Пример: '"Medical", 13, "Herb"' -> ["", "Medical", ", 13, ", "Herb", ""]
+                let parts: Vec<&str> = raw.split('"').collect();
                 
-                for token in tokens {
-                    if token == "11" {
-                        name.push('\n'); // 11 = просто перенос
-                    } else if token == "13" {
-                        name.push_str("\n "); // 13 = перенос + пробел
-                    } else if token.starts_with('"') && token.ends_with('"') {
-                        let word = &token[1..token.len()-1];
-                        // Если перед словом нет переноса и это не начало строки, ставим пробел
+                for i in 0..parts.len() {
+                    if i % 2 == 1 {
+                        // Нечетные индексы — это текст внутри кавычек (название предмета)
+                        let word = parts[i];
                         if !name.is_empty() && !name.ends_with('\n') && !name.ends_with(' ') {
                             name.push(' ');
                         }
                         name.push_str(word);
+                    } else {
+                        // Четные индексы — это то, что между кавычками (там ищем 11 и 13)
+                        let code = parts[i].trim();
+                        if code.contains("11") {
+                            name.push('\n');
+                        }
+                        if code.contains("13") {
+                            name.push_str("\n ");
+                        }
                     }
                 }
                 names.push(name);
