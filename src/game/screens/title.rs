@@ -1,5 +1,6 @@
 // src/game/screens/title.rs
 use sdl3::pixels::Color;
+use std::sync::OnceLock;
 use crate::engine::renderer::Renderer;
 use crate::engine::decompressor;
 
@@ -15,31 +16,43 @@ fn decode_genesis_color(first: u8, second: u8) -> Color {
     Color::RGB(CRAM_VALUE_MAP[r3], CRAM_VALUE_MAP[g3], CRAM_VALUE_MAP[b3])
 }
 
-/// Draw the title screen for the given frame counter.
-/// The intro is a fixed-length animation; the frame counter selects the
-/// current phase, and the global fade/scroll values drive the per-pixel
-/// rendering below.
-pub fn update_and_draw(renderer: &mut Renderer, mut frame: u32) {
-    // Load and decompress title-screen assets:
-    //   tiles      : the shared tile sheet (contains both planes' graphics)
-    //   layout_a   : plane A map (the "SHINING FORCE" logo + prompt row)
-    //   layout_b   : plane B map (the background "II" graphic)
-    //   palettes   : 64-entry Genesis CRAM (4 banks x 16 colors)
+
+pub struct TitleAssets {
+    pub tiles: Vec<u8>,
+    pub layout_a: Vec<u8>,
+    pub layout_b: Vec<u8>,
+    pub palette: Vec<Color>,
+}
+
+static ASSETS: OnceLock<TitleAssets> = OnceLock::new();
+
+fn load_assets() -> TitleAssets {
     let comp_tiles = std::fs::read("src/data/graphics/specialscreens/titlescreen/titlescreentiles.bin").expect("Нет titlescreentiles.bin");
     let tiles = decompressor::decompress(&comp_tiles).expect("Ошибка распаковки");
     let layout_a = std::fs::read("src/data/graphics/specialscreens/titlescreen/titlescreenlayoutA.bin").expect("Нет layout A");
     let layout_b = std::fs::read("src/data/graphics/specialscreens/titlescreen/titlescreenlayoutB.bin").expect("Нет layout B");
     let raw_pal = std::fs::read("src/data/graphics/specialscreens/titlescreen/titlescreenpalettes.bin").expect("Нет палитры");
-    
-    let mut palette = Vec::new();
-    for i in 0..(raw_pal.len() / 2) {
-        palette.push(decode_genesis_color(raw_pal[i*2], raw_pal[i*2+1]));
-    }
 
-    // Derive the animation phase from the frame counter. The intro is a
-    // fixed-length timeline; each phase subtracts its own length from `frame`,
-    // so the checks below run against the phase-relative counter:
-    //
+    let palette = (0..(raw_pal.len() / 2))
+        .map(|i| decode_genesis_color(raw_pal[i * 2], raw_pal[i * 2 + 1]))
+        .collect();
+
+    TitleAssets { tiles, layout_a, layout_b, palette }
+}
+
+pub fn preload() {
+    ASSETS.get_or_init(load_assets);
+}
+
+
+pub fn update_and_draw(renderer: &mut Renderer, mut frame: u32) {
+    let a = ASSETS.get_or_init(load_assets);
+    let tiles = &a.tiles;
+    let layout_a = &a.layout_a;
+    let layout_b = &a.layout_b;
+    let palette = &a.palette;
+
+
     //    0- 99 : fade in "SHINING FORCE" logo
     //  100-131 : scroll background down from +24 to +8   (32 frames)
     //  132-147 : scroll background down from  +8 to  0   (16 frames)

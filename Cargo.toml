@@ -9,3 +9,4 @@ path = "src/sf2.rs"
 
 [dependencies]
 sdl3 = "0.22"
+xbrz-rs = "0.1.0"

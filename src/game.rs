@@ -166,11 +166,12 @@ pub fn run() {
                 // ==============================================================
                 GameState::Launcher => {
                     screens::launcher::update_and_draw(&mut renderer, &mut launcher_state, &input_state);
-                    if let Some(mode) = launcher_state.confirmed.take() {
-                        renderer = Renderer::new(&sdl_context, mode);
-                        game_state = GameState::SegaLogo;
-                        frame_counter = 0;
-                    }
+                  if let Some(mode) = launcher_state.confirmed.take() {
+                      renderer = Renderer::new(&sdl_context, mode);
+                      crate::game::screens::segalogo::preload();
+                      game_state = GameState::SegaLogo;
+                      frame_counter = 0;
+                  }
                     should_render = true;
                 }
 
@@ -179,7 +180,11 @@ pub fn run() {
                 // ==============================================================
                 GameState::SegaLogo => {
                     screens::segalogo::update_and_draw(&mut renderer, frame_counter);
-                    if frame_counter > 200 { game_state = GameState::TitleScreen; frame_counter = 0; }
+                    if frame_counter > 200 {
+                        crate::game::screens::title::preload();
+                        game_state = GameState::TitleScreen;
+                        frame_counter = 0;
+                    }
                     should_render = true; 
                 }
 

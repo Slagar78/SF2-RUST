@@ -1,6 +1,8 @@
 // src/game/screens/segalogo.rs
 use sdl3::pixels::Color;
+use std::sync::OnceLock;
 use crate::engine::renderer::Renderer;
+use crate::engine::decompressor;
 use super::segalogo_data::{LOGO_ANIMATION, FINAL_FRAME};
 
 const CRAM_VALUE_MAP: [u8; 8] = [0, 52, 87, 116, 144, 172, 206, 255];
@@ -11,6 +13,31 @@ fn decode_genesis_color(first: u8, second: u8) -> Color {
     let g3 = ((word >> 5) & 0x07) as usize;
     let b3 = ((word >> 9) & 0x07) as usize;
     Color::RGB(CRAM_VALUE_MAP[r3], CRAM_VALUE_MAP[g3], CRAM_VALUE_MAP[b3])
+}
+
+pub struct SegaAssets {
+    pub tiles: Vec<u8>,
+    pub palette: Vec<Color>,
+}
+
+static ASSETS: OnceLock<SegaAssets> = OnceLock::new();
+
+fn load_assets() -> SegaAssets {
+    let tiles_data = std::fs::read("src/data/graphics/tech/segalogotiles.bin")
+        .expect("Нет файла тайлов");
+    let tiles = decompressor::decompress(&tiles_data).expect("Ошибка распаковки");
+
+    let pal_data = std::fs::read("src/data/graphics/tech/segalogopalette.bin")
+        .expect("Нет палитры");
+    let palette = (0..(pal_data.len() / 2))
+        .map(|i| decode_genesis_color(pal_data[i * 2], pal_data[i * 2 + 1]))
+        .collect();
+
+    SegaAssets { tiles, palette }
+}
+
+pub fn preload() {
+    ASSETS.get_or_init(load_assets);
 }
 
 pub struct LogoSprite {
@@ -36,26 +63,20 @@ pub fn get_logo_frame(frame_index: usize) -> Vec<LogoSprite> {
 }
 
 pub fn update_and_draw(renderer: &mut Renderer, frame: u32) {
-    let tiles_data = std::fs::read("src/data/graphics/tech/segalogotiles.bin").expect("Нет файла тайлов");
-    let tiles = crate::engine::decompressor::decompress(&tiles_data).expect("Ошибка распаковки");
-    
-    let pal_data = std::fs::read("src/data/graphics/tech/segalogopalette.bin").expect("Нет палитры");
-    let mut palette = Vec::new();
-    for i in 0..(pal_data.len() / 2) {
-        palette.push(decode_genesis_color(pal_data[i*2], pal_data[i*2+1]));
-    }
+    let assets = ASSETS.get_or_init(load_assets);
+    let tiles = &assets.tiles;
+    let palette = &assets.palette;
 
     let sprites = get_logo_frame(frame as usize);
 
     // НАСТОЯЩАЯ ВСПЫШКА (как в ASM, после сборки логотипа)
     // На 160-м кадре экран резко становится белым, а потом гаснет.
-    let mut flash_intensity: f32 = 0.0;
-    if frame >= 150 && frame < 170 {
+    let flash_intensity: f32 = if frame >= 150 && frame < 170 {
         let progress = (frame - 150) as f32 / 10.0;
-        flash_intensity = if progress < 1.0 { progress } else { 2.0 - progress };
-    } else if frame >= 170 {
-        flash_intensity = 1.0; // Или 0.0, если должен быть просто белый экран
-    }
+        if progress < 1.0 { progress } else { 2.0 - progress }
+    } else {
+        0.0
+    };
 
     renderer.texture.with_lock(None, |buffer, pitch| {
         for y in 0..224 {
