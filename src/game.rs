@@ -378,11 +378,17 @@ pub fn run() {
                             last_input = current_input;
                         } else {
                             if current_input != last_input {
+                                let mut changed = false;
                                 if (current_input & INPUT_UP) != 0 && member_menu.selected_member > 0 {
                                     member_menu.selected_member -= 1;
+                                    changed = true;
                                 }
                                 else if (current_input & INPUT_DOWN) != 0 && member_menu.selected_member < force_members.len() - 1 {
                                     member_menu.selected_member += 1;
+                                    changed = true;
+                                }
+                                if changed {
+                                    member_menu.clamp_scroll(force_members.len());
                                 }
                             }
                             last_input = current_input;
@@ -482,11 +488,17 @@ pub fn run() {
                             last_input = current_input;
                         } else {
                             if current_input != last_input {
+                                let mut changed = false;
                                 if (current_input & INPUT_UP) != 0 && magic_menu.selected_member > 0 {
                                     magic_menu.selected_member -= 1;
+                                    changed = true;
                                 }
                                 else if (current_input & INPUT_DOWN) != 0 && magic_menu.selected_member < force_members.len() - 1 {
                                     magic_menu.selected_member += 1;
+                                    changed = true;
+                                }
+                                if changed {
+                                    magic_menu.clamp_scroll(force_members.len());
                                 }
                             }
                             last_input = current_input;

@@ -8,6 +8,8 @@ use crate::game::menu::layouts;
 use crate::engine::base_tiles::{Vram, VRAM_PORTRAITS, VRAM_UI_ICONS};
 use sdl3::pixels::Color;
 
+pub const VISIBLE_MEMBERS: usize = 5;
+
 pub struct MagicMenuState {
     pub window_slot_portrait: Option<usize>,
     pub window_slot_summary: Option<usize>,
@@ -15,6 +17,7 @@ pub struct MagicMenuState {
     pub portrait_data: Option<PortraitData>,
     pub closing: bool,
     pub selected_member: usize,
+    pub scroll_offset: usize,
 }
 
 impl MagicMenuState {
@@ -26,12 +29,14 @@ impl MagicMenuState {
             portrait_data: None,
             closing: false,
             selected_member: 0,
+            scroll_offset: 0,
         }
     }
 
     pub fn open(&mut self, window_engine: &mut WindowEngine, vram: &mut Vram, global_palette: &mut Vec<Color>, p_data: Option<PortraitData>) {
         self.closing = false;
         self.selected_member = 0;
+        self.scroll_offset = 0;
 
         if let Some(p_data) = p_data {
             let _ = vram.write_bytes(VRAM_PORTRAITS, &p_data.tiles);
@@ -43,7 +48,11 @@ impl MagicMenuState {
             self.portrait_data = Some(p_data);
         }
 
-        // Загружаем иконки: Egress (10) и Empty (15)
+        // ХАК ДЛЯ ОРАНЖЕВОГО ЦВЕТА: перекрашиваем Банк 3 (индекс 49) в оранжевый
+        if global_palette.len() > 49 {
+            global_palette[49] = Color::RGB(255, 116, 0); 
+        }
+
         if let Ok(data) = std::fs::read("src/data/graphics/icons/spell/icon010.bin") {
             let offset = VRAM_UI_ICONS + 0x800;
             let _ = vram.write_bytes(offset, &data);
@@ -83,18 +92,38 @@ impl MagicMenuState {
         if self.closing { return; }
         self.closing = true;
         if let Some(slot) = self.window_slot_portrait { window_engine.move_window(slot, 0xF8F6, 4); }
-        if let Some(slot) = self.window_slot_summary { window_engine.move_window(slot, 0x20F3, 4); }
-        if let Some(slot) = self.window_slot_list { window_engine.move_window(slot, 0x0220, 4); }
+        if let Some(slot) = self.window_slot_summary  { window_engine.move_window(slot, 0x20F3, 4); }
+        if let Some(slot) = self.window_slot_list     { window_engine.move_window(slot, 0x0220, 4); }
     }
 
     pub fn close(&mut self, window_engine: &mut WindowEngine) {
         if let Some(slot) = self.window_slot_portrait { window_engine.delete_window(slot); }
-        if let Some(slot) = self.window_slot_summary { window_engine.delete_window(slot); }
-        if let Some(slot) = self.window_slot_list { window_engine.delete_window(slot); }
+        if let Some(slot) = self.window_slot_summary  { window_engine.delete_window(slot); }
+        if let Some(slot) = self.window_slot_list     { window_engine.delete_window(slot); }
         self.window_slot_portrait = None;
         self.window_slot_summary = None;
         self.window_slot_list = None;
         self.portrait_data = None;
+    }
+
+    pub fn clamp_scroll(&mut self, total: usize) {
+        if total == 0 {
+            self.scroll_offset = 0;
+            return;
+        }
+        if self.selected_member >= total {
+            self.selected_member = total - 1;
+        }
+        if self.selected_member < self.scroll_offset {
+            self.scroll_offset = self.selected_member;
+        }
+        if self.selected_member >= self.scroll_offset + VISIBLE_MEMBERS {
+            self.scroll_offset = self.selected_member + 1 - VISIBLE_MEMBERS;
+        }
+        let max_start = total.saturating_sub(VISIBLE_MEMBERS);
+        if self.scroll_offset > max_start {
+            self.scroll_offset = max_start;
+        }
     }
 
     fn draw_icon(&self, window_engine: &mut WindowEngine, slot: usize, x: u8, y: u8, base_tile: u16) {
@@ -115,8 +144,9 @@ impl MagicMenuState {
 
         // --- SUMMARY WINDOW (MAGIC) ---
         if let Some(slot) = self.window_slot_summary {
+            // Чистим всё окно нормально (19 пробелов начиная с x=1)
             for i in 0..11 {
-                window_engine.write_string(slot, 2, 1 + i, "                 "); 
+                window_engine.write_string(slot, 1, 1 + i, "                   "); 
             }
 
             window_engine.write_string(slot, 2, 1, &member.name);
@@ -125,33 +155,46 @@ impl MagicMenuState {
 
             window_engine.write_string(slot, 2, 3, "- MAGIC -");
 
+            let egress_tile = ((VRAM_UI_ICONS + 0x800) / 32) as u16;
+            let empty_tile  = ((VRAM_UI_ICONS + 0x800 + 192) / 32) as u16;
+
             if !member.spells.is_empty() {
                 let (spell, lvl) = &member.spells[0];
-                window_engine.write_string(slot, 12, 3, spell);
+                let spell_str: String = spell.chars().take(9).collect();
+                window_engine.write_string(slot, 12, 3, &spell_str);
                 window_engine.write_string(slot, 12, 4, &format!("Level {}", lvl));
-            }
-
-            let egress_tile = ((VRAM_UI_ICONS + 0x800) / 32) as u16;
-            let empty_tile = ((VRAM_UI_ICONS + 0x800 + 192) / 32) as u16;
-
-            if !member.spells.is_empty() {
-                self.draw_icon(window_engine, slot, 5, 5, egress_tile); 
+                
+                self.draw_icon(window_engine, slot, 5, 5, egress_tile);
             } else {
                 self.draw_icon(window_engine, slot, 5, 5, empty_tile);
+                
+                // Пишем "Nothing" на месте заклинания (x=12, y=3)
+                window_engine.write_string(slot, 12, 3, "Nothing");
+                
+                // Принудительно меняем палитровый банк на 3-й (0x6000) для этих букв
+                let start_offset = window_engine.entries[slot].layout_start_index;
+                let width = ((window_engine.entries[slot].width_height >> 8) & 0xFF) as usize;
+                let text_idx_start = start_offset + (3 * width + 12);
+                
+                for i in 0..7 { // Длина слова "Nothing" = 7
+                    let idx = text_idx_start + i;
+                    if idx < window_engine.window_tile_layouts.len() {
+                        // Срезаем старые банки и ставим 3-й (VDPTILE_PALETTE2 | VDPTILE_PALETTE3)
+                        window_engine.window_tile_layouts[idx] = 
+                            (window_engine.window_tile_layouts[idx] & !0x6000) | 0x6000;
+                    }
+                }
             }
 
-            self.draw_icon(window_engine, slot, 2, 7, empty_tile); // Левая
-            self.draw_icon(window_engine, slot, 8, 7, empty_tile); // Правая
-            self.draw_icon(window_engine, slot, 5, 9, empty_tile); // Нижняя
-
-            if member.spells.is_empty() {
-                window_engine.write_string(slot, 7, 6, "Nothing");
-            }
+            self.draw_icon(window_engine, slot, 2, 7, empty_tile);
+            self.draw_icon(window_engine, slot, 8, 7, empty_tile);
+            self.draw_icon(window_engine, slot, 5, 9, empty_tile);
         }
 
         // --- ROSTER LIST WINDOW ---
         if let Some(slot) = self.window_slot_list {
-            for i in 0..8 {
+            // ИСПРАВЛЕНИЕ РАМКИ: останавливаем цикл на строке 11 (5-й персонаж)
+            for i in 0..((VISIBLE_MEMBERS as u8 * 2) - 1) {
                 window_engine.write_string(slot, 1, 3 + i, "                          ");
             }
 
@@ -160,18 +203,18 @@ impl MagicMenuState {
             window_engine.write_string(slot, 19, 1, "LEV");
             window_engine.write_string(slot, 24, 1, "EXP");
 
-            for (i, m) in members.iter().take(4).enumerate() {
+            for (i, m) in members.iter().skip(self.scroll_offset).take(VISIBLE_MEMBERS).enumerate() {
                 let y = 3 + (i as u8 * 2);
-                
-                let prefix = if i == self.selected_member { ">" } else { " " };
+                let member_idx = self.scroll_offset + i;
+
+                let prefix = if member_idx == self.selected_member { ">" } else { " " };
                 window_engine.write_string(slot, 1, y, prefix);
-                
+
                 let name_str = format!("{:<8}", m.name);
                 window_engine.write_string(slot, 2, y, &name_str);
                 window_engine.write_string(slot, 11, y, &m.class);
-                
                 window_engine.write_string(slot, 20, y, &m.level.to_string());
-                window_engine.write_string(slot, 25, y, "0"); 
+                window_engine.write_string(slot, 25, y, "0");
             }
         }
     }
@@ -179,29 +222,24 @@ impl MagicMenuState {
     pub fn draw_highlight(&self, buf: &mut [u8], pitch: usize, window_engine: &WindowEngine, frame_counter: u32) {
         if let Some(slot) = self.window_slot_list {
             let blink_cycle = frame_counter % 30;
-            if blink_cycle < 7 {
-                return;
-            }
+            if blink_cycle < 7 { return; }
 
             let entry = &window_engine.entries[slot];
             let win_x = (((entry.x_y >> 8) as u8 as i8) as i32 * 8) + 32;
             let win_y = ((entry.x_y & 0xFF) as u8 as i8) as i32 * 8;
 
-            // Начинаем ровно с 1-го тайла (где стоит стрелка ">")
-            let target_x = win_x + (1 * 8); 
-            let target_y = win_y + ((3 + self.selected_member as i32 * 2) * 8) - 4;
+            let visual_row = self.selected_member.saturating_sub(self.scroll_offset) as i32;
+            let target_x = win_x + 8;
+            let target_y = win_y + ((3 + visual_row * 2) * 8) - 4;
 
-            // Ширина 72 пикселя (9 тайлов) — захватывает стрелку и имя
             let w = 72;
             let h = 16;
             let color = Color::RGB(255, 0, 0);
 
-            // ВЕРХНЯЯ И НИЖНЯЯ ЛИНИИ (от 1 до w-1, чтобы срезать углы)
-            for x in 1..w-1 {
+            for x in 1..w - 1 {
                 let px = target_x + x;
                 let py_top = target_y;
                 let py_bot = target_y + h - 1;
-
                 if px >= 32 && px < 288 && py_top >= 0 && py_top < 224 {
                     let off = py_top as usize * pitch + px as usize * 4;
                     buf[off] = color.r; buf[off+1] = color.g; buf[off+2] = color.b; buf[off+3] = 255;
@@ -212,12 +250,10 @@ impl MagicMenuState {
                 }
             }
 
-            // ЛЕВАЯ И ПРАВАЯ ЛИНИИ (от 1 до h-1, чтобы срезать углы)
-            for y in 1..h-1 {
+            for y in 1..h - 1 {
                 let py = target_y + y;
                 let px_left = target_x;
                 let px_right = target_x + w - 1;
-
                 if px_left >= 32 && px_left < 288 && py >= 0 && py < 224 {
                     let off = py as usize * pitch + px_left as usize * 4;
                     buf[off] = color.r; buf[off+1] = color.g; buf[off+2] = color.b; buf[off+3] = 255;
@@ -229,5 +265,4 @@ impl MagicMenuState {
             }
         }
     }
-
 }

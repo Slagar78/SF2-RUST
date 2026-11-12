@@ -181,7 +181,10 @@ impl WindowEngine {
         let start_offset = entry.layout_start_index + (y as usize * width + x as usize);
 
         for (i, ch) in text.chars().enumerate() {
+            // ЗАЩИТА: если текст доходит до правой рамки (width - 1), обрубаем его
+            if x as usize + i >= width - 1 { break; } 
             if ch == '\0' { break; }
+            
             let mut tile = (ch as u16) | VDPTILE_PALETTE3 | VDPTILE_PRIORITY;
             if (ch as u8) >= 0x60 { tile += 32; }
             

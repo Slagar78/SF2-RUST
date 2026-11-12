@@ -7,7 +7,7 @@ pub struct Item {
     pub name: String,
     pub item_type: String,
     pub price: u16,
-    pub equip_effects: Vec<(String, i32)>, // Например: ("INCREASE_ATT", 5)
+    pub equip_effects: Vec<(String, i32)>,
 }
 
 pub fn load_items() -> Vec<Item> {
@@ -19,24 +19,28 @@ pub fn load_items() -> Vec<Item> {
         for line in content.lines() {
             let clean = line.split(';').next().unwrap().trim();
             if clean.starts_with("itemName ") {
-                let mut name_parts = Vec::new();
-                let mut in_quotes = false;
-                let mut current_str = String::new();
-
-                // Вытаскиваем всё, что в кавычках
-                for c in clean.chars() {
-                    if c == '"' {
-                        if in_quotes {
-                            name_parts.push(current_str.clone());
-                            current_str.clear();
+                let raw = clean.trim_start_matches("itemName").trim();
+                let mut name = String::new();
+                
+                // Разбиваем на токены по запятым и пробелам. 
+                // Например: '"Short", 13, "Axe"' -> ['"Short"', '13', '"Axe"']
+                let tokens: Vec<&str> = raw.split(|c: char| c == ',' || c.is_whitespace()).filter(|s| !s.is_empty()).collect();
+                
+                for token in tokens {
+                    if token == "11" {
+                        name.push('\n'); // 11 = просто перенос
+                    } else if token == "13" {
+                        name.push_str("\n "); // 13 = перенос + пробел
+                    } else if token.starts_with('"') && token.ends_with('"') {
+                        let word = &token[1..token.len()-1];
+                        // Если перед словом нет переноса и это не начало строки, ставим пробел
+                        if !name.is_empty() && !name.ends_with('\n') && !name.ends_with(' ') {
+                            name.push(' ');
                         }
-                        in_quotes = !in_quotes;
-                    } else if in_quotes {
-                        current_str.push(c);
+                        name.push_str(word);
                     }
                 }
-                // Склеиваем через пробел ("Medical" + "Herb" -> "Medical Herb")
-                names.push(name_parts.join(" "));
+                names.push(name);
             }
         }
     }
@@ -53,7 +57,6 @@ pub fn load_items() -> Vec<Item> {
             let clean = line.split(';').next().unwrap().trim();
             if clean.is_empty() { continue; }
 
-            // Начало нового предмета
             if clean.starts_with("equipFlags") {
                 if current_id > 0 {
                     let name = names.get(current_id - 1).cloned().unwrap_or_else(|| format!("Item {}", current_id - 1));
@@ -84,7 +87,7 @@ pub fn load_items() -> Vec<Item> {
                 }
             }
         }
-        // Добавляем последний предмет
+        
         if current_id > 0 {
             let name = names.get(current_id - 1).cloned().unwrap_or_else(|| format!("Item {}", current_id - 1));
             items.push(Item {
