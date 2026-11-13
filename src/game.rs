@@ -107,7 +107,7 @@ pub fn run() {
     let mut last_input: u8 = 0;
     let mut dialog_state = crate::game::script::dialog::DialogState::new();
     let game_script = crate::game::script::text_parser::GameScript::new();
-    let mut script_engine = crate::game::script::script_engine::ScriptEngine::new();
+    let mut script_engine = crate::game::script::script_engine::ScriptEngine::new(&map_data.scripts_paths);
     let portrait_props = crate::game::script::portrait_properties::PortraitProperties::new();
     let mut current_talking_entity = String::new();
     
@@ -256,7 +256,9 @@ pub fn run() {
                         if dest_map != 255 {
                             println!("Загрузка карты через варп: {}", dest_map);
                             events_state.reset(); 
+                            
                             map_data = load_map_data(dest_map);
+                            script_engine = crate::game::script::script_engine::ScriptEngine::new(&map_data.scripts_paths);
 
                             map_sprites.clear();
                             map_sprites.insert(0, player::load_player_sprites());

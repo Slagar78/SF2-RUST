@@ -229,25 +229,34 @@ pub fn tick_entities(
                 entity.idle_timer -= 1;
             } else {
                 if let EntityMovement::Walking { zone_x, zone_y, zone_size } = entity.movement {
-                    let dir = (frame_counter.wrapping_add((entity.x as u32) * 17).wrapping_add((entity.y as u32) * 31)) % 4;
-                    
-                    entity.facing = dir as u8;
-
-                    let mut nx = entity.x as i32;
-                    let mut ny = entity.y as i32;
-
-                    match dir {
-                        0 => { if entity.y > zone_y.saturating_sub(zone_size) { ny -= 1; } }
-                        1 => { if entity.y < zone_y + zone_size { ny += 1; } }
-                        2 => { if entity.x > zone_x.saturating_sub(zone_size) { nx -= 1; } }
-                        _ => { if entity.x < zone_x + zone_size { nx += 1; } }
+                    // 1. Собираем все валидные направления
+                    let mut valid_dirs = Vec::new();
+                    for dir in 0..4 {
+                        let mut nx = entity.x as i32;
+                        let mut ny = entity.y as i32;
+                        
+                        match dir {
+                            0 => { if entity.y > zone_y.saturating_sub(zone_size) { ny -= 1; } else { continue; } }
+                            1 => { if entity.y < zone_y + zone_size { ny += 1; } else { continue; } }
+                            2 => { if entity.x > zone_x.saturating_sub(zone_size) { nx -= 1; } else { continue; } }
+                            _ => { if entity.x < zone_x + zone_size { nx += 1; } else { continue; } }
+                        }
+                        
+                        let idx = (ny * 64 + nx) as usize;
+                        let is_wall = idx < layout.len() && (layout[idx].flags & 0xC000) == 0xC000;
+                        let is_occupied = occupied.contains(&(nx, ny)) && (nx != entity.x as i32 || ny != entity.y as i32);
+                        
+                        if !is_wall && !is_occupied {
+                            valid_dirs.push((nx, ny, dir));
+                        }
                     }
-
-                    let idx = (ny * 64 + nx) as usize;
-                    let is_wall = idx < layout.len() && (layout[idx].flags & 0xC000) == 0xC000;
-                    let is_occupied = occupied.contains(&(nx, ny)) && (nx != entity.x as i32 || ny != entity.y as i32);
-
-                    if !is_wall && !is_occupied {
+                    
+                    // 2. Выбираем случайно из доступных
+                    if !valid_dirs.is_empty() {
+                        let rand_idx = (frame_counter.wrapping_add((entity.x as u32) * 17).wrapping_add((entity.y as u32) * 31)) as usize % valid_dirs.len();
+                        let (nx, ny, dir) = valid_dirs[rand_idx];
+                        
+                        entity.facing = dir as u8;
                         entity.x = nx as u8;
                         entity.y = ny as u8;
                         entity.target_x = nx * 384;
@@ -257,7 +266,9 @@ pub fn tick_entities(
                         
                         entity.idle_timer = 60; 
                     } else {
+                        // Если все стороны заблокированы, просто стоим
                         entity.idle_timer = 30;
+                        entity.facing = ((frame_counter / 30) % 4) as u8;
                     }
                 }
             }

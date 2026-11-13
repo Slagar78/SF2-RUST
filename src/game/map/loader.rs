@@ -70,6 +70,7 @@ pub struct MapData {
     pub animations: Vec<MapAnimation>,
     pub entities: Vec<MapEntity>,
     pub entity_events: crate::game::script::entity_events::EntityEvents,
+    pub scripts_paths: Vec<String>,
 }
 
 pub fn load_map_names() -> HashMap<String, u8> {
@@ -179,12 +180,16 @@ pub fn load_map_data(map_id: u8) -> MapData {
 
     let entities = crate::game::map::entities::load_entities(map_id);
     
-    // Загружаем скрипты диалогов для этой карты
-    let entity_events = crate::game::script::entity_events::EntityEvents::new(map_id); // <-- ДОБАВИТЬ
+    // Загружаем скрипты диалогов для этой карты, используя точные пути
+    let entity_events = crate::game::script::entity_events::EntityEvents::new(&paths.entity_events_paths); 
+    
+    // Запоминаем пути к скриптам движения для ScriptEngine
+    let scripts_paths = paths.scripts_paths.clone(); 
 
     MapData { 
         layout, blockset, tilesets, palette, warps, step_events, items, roof_events, areas, animations, entities,
         entity_events,
+        scripts_paths,
     }
 }
 

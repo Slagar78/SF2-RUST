@@ -9,50 +9,49 @@ pub struct EntityEvents {
 }
 
 impl EntityEvents {
-    pub fn new(map_id: u8) -> Self {
+    pub fn new(event_paths: &[String]) -> Self {
         let mut event_map = HashMap::new();
         let mut script_texts = HashMap::new();
         let mut script_commands = HashMap::new();
 
-        let path = format!("src/data/maps/entries/map{:02}/mapsetups/s2_entityevents.asm", map_id);
-        if let Ok(content) = fs::read_to_string(&path) {
-            let mut current_handler = String::new();
+        // Читаем ВСЕ пути, которые нашёл finder.rs (обычно 1 файл, но иногда их несколько)
+        for path in event_paths {
+          println!("[EntityEvents] Загрузка файла событий: {}", path);
+            let full_path = format!("src/{}", path);
+            if let Ok(content) = fs::read_to_string(&full_path) {
+                let mut current_handler = String::new();
 
-            for line in content.lines() {
-                let clean = line.split(';').next().unwrap().trim();
-                if clean.is_empty() { continue; }
+                for line in content.lines() {
+                    let clean = line.split(';').next().unwrap().trim();
+                    if clean.is_empty() { continue; }
 
-                // 1. Привязка NPC к скрипту (msEntityEvent ALLY_SARAH, DOWN, Map3_EntityEvent0)
-                if clean.starts_with("msEntityEvent ") {
-                    let args: Vec<&str> = clean["msEntityEvent ".len()..].split(',').map(|s| s.trim()).collect();
-                    if args.len() >= 3 {
-                        let entity_name = args[0].to_string();
-                        let script_label = args[2].split('-').next().unwrap().trim().to_string();
-                        event_map.insert(entity_name, script_label);
+                    if clean.starts_with("msEntityEvent ") {
+                        let args: Vec<&str> = clean["msEntityEvent ".len()..].split(',').map(|s| s.trim()).collect();
+                        if args.len() >= 3 {
+                            let entity_name = args[0].to_string();
+                            let script_label = args[2].split('-').next().unwrap().trim().to_string();
+                            event_map.insert(entity_name, script_label);
+                        }
                     }
-                }
-                // 2. Новый главный обработчик (Map3_EntityEvent0:)
-                else if clean.ends_with(':') && (clean.starts_with("Map") || clean.starts_with("ms_")) {
-                    let label = clean.trim_end_matches(':').to_string();
-                    // Игнорируем внутренние метки типа byte_50F6A
-                    if !label.starts_with("byte_") && !label.starts_with("loc_") && !label.starts_with("return_") {
-                        current_handler = label;
+                    else if clean.ends_with(':') && (clean.starts_with("Map") || clean.starts_with("ms_")) {
+                        let label = clean.trim_end_matches(':').to_string();
+                        if !label.starts_with("byte_") && !label.starts_with("loc_") && !label.starts_with("return_") {
+                            current_handler = label;
+                        }
                     }
-                }
-                // 3. Текст
-                else if clean.starts_with("txt ") {
-                    if !current_handler.is_empty() {
-                        let arg = clean["txt ".len()..].trim();
-                        let num_str: String = arg.chars().take_while(|c| c.is_ascii_digit()).collect();
-                        let num = num_str.parse::<u16>().unwrap_or(0);
-                        script_texts.entry(current_handler.clone()).or_insert(num);
+                    else if clean.starts_with("txt ") {
+                        if !current_handler.is_empty() {
+                            let arg = clean["txt ".len()..].trim();
+                            let num_str: String = arg.chars().take_while(|c| c.is_ascii_digit()).collect();
+                            let num = num_str.parse::<u16>().unwrap_or(0);
+                            script_texts.entry(current_handler.clone()).or_insert(num);
+                        }
                     }
-                }
-                // 4. Скрипт
-                else if clean.starts_with("script ") {
-                    if !current_handler.is_empty() {
-                        let arg = clean["script ".len()..].trim();
-                        script_commands.entry(current_handler.clone()).or_insert(arg.to_string());
+                    else if clean.starts_with("script ") {
+                        if !current_handler.is_empty() {
+                            let arg = clean["script ".len()..].trim();
+                            script_commands.entry(current_handler.clone()).or_insert(arg.to_string());
+                        }
                     }
                 }
             }

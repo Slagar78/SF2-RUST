@@ -23,6 +23,8 @@ pub struct MapPaths {
     pub anim_data: Option<(u8, usize, usize)>,
     pub chest_items: Vec<(u8, u8, u16, String)>, // x, y, flag, item_name
     pub other_items: Vec<(u8, u8, u16, String)>, // x, y, flag, item_name
+    pub scripts_paths: Vec<String>,
+    pub entity_events_paths: Vec<String>,
 }
 
 pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
@@ -61,6 +63,8 @@ pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
         anim_data: None,
         chest_items: Vec::new(),
         other_items: Vec::new(),
+        scripts_paths: Vec::new(),
+        entity_events_paths: Vec::new(),
     };
 
     // 2. Ищем пути в entries.asm (ДИНАМИЧЕСКИ)
@@ -300,7 +304,7 @@ pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
         if let Ok(content) = fs::read_to_string(format!("src/{}", paths.other_items_path)) {
             for line in content.lines() {
                 let clean = line.split(';').next().unwrap().trim();
-                  if clean.starts_with("mapItem ") {
+                if clean.starts_with("mapItem ") {
                     let stripped = clean.replace("mapItem ", "");
                     let args: Vec<&str> = stripped.split(',').map(|s| s.trim()).collect();
                     if args.len() >= 4 {
@@ -309,6 +313,32 @@ pub fn find_map_paths(map_id: u8, map_dict: &HashMap<String, u8>) -> MapPaths {
                         let flag = args[2].parse().unwrap_or(0);
                         let item_name = args[3].to_string();
                         paths.other_items.push((x, y, flag, item_name));
+                    }
+                }
+            }
+        }
+    }
+
+    // 11. Парсим mapsetupsstorage.asm (точные пути ко всем скриптам и событиям)
+    if let Ok(content) = fs::read_to_string("src/data/maps/mapsetupsstorage.asm") {
+        for line in content.lines() {
+            let clean = line.trim();
+            // Проверяем и с обратными, и с прямыми слешами
+            let search_str_1 = format!("entries\\map{:02}\\mapsetups\\", map_id);
+            let search_str_2 = format!("entries/map{:02}/mapsetups/", map_id);
+            
+            if clean.contains(&search_str_1) || clean.contains(&search_str_2) {
+                if let Some(start) = clean.find('"') {
+                    if let Some(end) = clean[start+1..].find('"') {
+                        let filepath = clean[start+1..start+1+end].replace('\\', "/");
+                        
+                        if filepath.contains("scripts") && filepath.ends_with(".asm") {
+                            paths.scripts_paths.push(filepath); 
+                        } 
+                        // БЕРЕМ ТОЛЬКО s2_entityevents.asm (без _609, _506 и т.д.)
+                        else if filepath.ends_with("s2_entityevents.asm") {
+                            paths.entity_events_paths.push(filepath); 
+                        }
                     }
                 }
             }
