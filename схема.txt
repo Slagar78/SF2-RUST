@@ -16,7 +16,7 @@ C:\my_project\SF2-RUST\
 │   │
 │   ├── game.rs                     <-- Main game loop and game-state switching (handles rendering modes)
 │   ├── game\
-│   │   ├── state.rs                <-- GameState enum (Launcher, SegaLogo, Map, Dialogue, Menu, etc.)
+│   │   ├── state.rs                <-- GameState enum (Launcher, SegaLogo, Map, Dialogue, Script, Menu, etc.)
 │   │   ├── render_mode.rs          <-- RenderMode enum (Original 320x224, Normal 768x672)
 │   │   ├── player.rs               <-- Bowie movement (grid, collisions, turn-in-place, ladders, warps)
 │   │   ├── flags.rs                <-- GameFlags (global story/event boolean states)
@@ -27,7 +27,10 @@ C:\my_project\SF2-RUST\
 │   │   ├── script.rs               <-- Script system root module
 │   │   ├── script\
 │   │   │   ├── text_parser.rs      <-- Parser for gamescript.txt (читает ID строк и сам текст)
-│   │   │   └── dialog.rs           <-- Dialogue state machine (печать текста, создание окна)
+│   │   │   ├── dialog.rs           <-- Dialogue state machine (печать текста, окно, анимация рта/глаз)
+│   │   │   ├── entity_events.rs    <-- NEW: Parser for s2_entityevents.asm (связь NPC -> Скрипт -> Текст)
+│   │   │   ├── portrait_properties.rs <-- NEW: Parser for spritedialogproperties.asm (связь Спрайт -> Портрет)
+│   │   │   └── script_engine.rs    <-- NEW: Parser for scripts_1.asm (движение NPC, повороты, паузы)
 │   │   │
 │   │   ├── map.rs                  <-- Map module root: connects map submodules
 │   │   ├── map\
@@ -36,8 +39,8 @@ C:\my_project\SF2-RUST\
 │   │   │   ├── anim.rs             <-- Universal 32-tile animation (water, torches, etc.)
 │   │   │   ├── camera.rs           <-- Camera with dead zones, subpixel scrolling, can_open_menu()
 │   │   │   ├── draw.rs             <-- Renders two map layers (H32 clipping, anim tile replacement)
-│   │   │   ├── events.rs           <-- Event handling (warps, doors, roofs, items, NPC talk)
-│   │   │   └── entities.rs         <-- NPC parser (s1_entities.asm) and smooth movement AI
+│   │   │   ├── events.rs           <-- Event handling (warps, roofs, items, NPC talk)
+│   │   │   └── entities.rs         <-- NPC parser (s1_entities.asm), smooth movement AI, is_scripting flag
 │   │   │
 │   │   ├── menu.rs                 <-- Menu module root: connects menu submodules
 │   │   ├── menu\
@@ -47,7 +50,7 @@ C:\my_project\SF2-RUST\
 │   │   │   ├── member_menu.rs      <-- Party list screen (portrait, summary, list, red highlight)
 │   │   │   ├── magic_menu.rs       <-- Magic menu (spell list, Egress/Empty icons, red highlight)
 │   │   │   ├── member_status_menu.rs <-- Status screen (ATT, DEF, KILLS, GOLD, blinking)
-│   │   │   ├── portrait.rs         <-- Portrait loading/parsing (Portrait00.bin)
+│   │   │   ├── portrait.rs         <-- Portrait loading/parsing (eyes, mouth, palette, tiles)
 │   │   │   └── draw_menu.rs        <-- Text rendering in Diamond Menu (MEMBER, MAGIC)
 │   │   │
 │   │   ├── screens.rs              <-- Screens module root: connects screen submodules
@@ -59,9 +62,13 @@ C:\my_project\SF2-RUST\
 │   │       └── witch.rs            <-- Witch screen
 │   │
 │   └── data\                       <-- Original asset directory (fully matches sf2disasm structure)
-│       ├── ...                     <-- (maps, stats, scripting, etc. identical to sf2disasm)
+│       ├── ...
+│       ├── spritedialogproperties.asm <-- NEW: Оригинальный ASM файл свойств спрайтов
 │       └── graphics\
 │           ├── ...
+│           ├── portraits\          <-- NEW: Папка с портретами
+│           │   ├── portraitnames.txt  <-- Список имен портретов
+│           │   └── portrait00.bin ... <-- Бинарники портретов
 │           └── mapsprites\
 │               ├── mapspritenames.txt <-- Parsed to get exact NPC sprite IDs
 │               ├── mapsprite000-0.bin

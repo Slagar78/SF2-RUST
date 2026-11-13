@@ -14,9 +14,15 @@ pub struct MapEntity {
     pub x: u8,
     pub y: u8,
     pub facing: u8,
+    pub original_facing: u8,
     pub sprite_id: u8,
+    pub event_id: String,
+    pub sprite_name: String,
     pub movement: EntityMovement,
     pub is_hidden: bool,
+    pub is_talking: bool,
+    pub script_played: bool,
+    pub is_scripting: bool,
     pub pixel_x: i32,
     pub pixel_y: i32,
     pub target_x: i32,
@@ -53,6 +59,8 @@ pub fn load_entities(map_id: u8) -> Vec<MapEntity> {
     let content = match fs::read_to_string(&path) { Ok(c) => c, Err(_) => return entities };
     let sprite_map = load_sprite_names();
 
+    let mut npc_id: u16 = 128;
+
     for line in content.lines() {
         let clean = line.split(';').next().unwrap().trim();
         if clean.is_empty() { continue; }
@@ -82,16 +90,34 @@ pub fn load_entities(map_id: u8) -> Vec<MapEntity> {
                 EntityMovement::Fixed
             };
 
+            let sprite_name = args[3].clone();
+            
+            let event_id = if sprite_name.starts_with("ALLY_") {
+                sprite_name.clone()
+            } else {
+                let id = npc_id.to_string();
+                npc_id += 1;
+                id
+            };
+
+            let facing = parse_facing(&args[2]);
+
             entities.push(MapEntity {
                 x, y,
-                facing: parse_facing(&args[2]),
-                sprite_id: resolve_sprite(&args[3], &sprite_map),
+                facing,
+                original_facing: facing,
+                sprite_id: resolve_sprite(&sprite_name, &sprite_map),
+                event_id,
+                sprite_name: sprite_name.clone(),
                 movement,
                 is_hidden: x == 63 && y == 63,
+                is_talking: false,
+                script_played: false,
+                is_scripting: false,
                 pixel_x: px, pixel_y: py,
                 target_x: px, target_y: py,
                 travel_x: 0, travel_y: 0,
-                anim_counter: (x as u8) % 20, // Разный старт анимации, чтобы не дышали синхронно
+                anim_counter: (x as u8) % 20,
                 frame: 0,
                 idle_timer: (x as u16 * 13 + y as u16 * 7) % 60,
             });
@@ -133,7 +159,8 @@ pub fn tick_entities(
     let mut occupied: HashSet<(i32, i32)> = HashSet::new();
     occupied.insert((player_x, player_y));
     for e in entities.iter() {
-        if !e.is_hidden {
+        // Добавляем в "занятые" только тех, кто НЕ в скрипте и НЕ говорит
+        if !e.is_hidden && !e.is_talking && !e.is_scripting {
             occupied.insert((e.x as i32, e.y as i32));
         }
     }
@@ -141,30 +168,54 @@ pub fn tick_entities(
     for entity in entities.iter_mut() {
         if entity.is_hidden { continue; }
 
+        // Если NPC в диалоге - крутим анимацию и пропускаем
+        if entity.is_talking {
+            entity.anim_counter = entity.anim_counter.wrapping_add(1);
+            if entity.anim_counter >= 20 {
+                entity.anim_counter = 0;
+                entity.frame = if entity.frame == 0 { 1 } else { 0 };
+            }
+            continue;
+        }
+
         let is_moving = entity.travel_x != 0 || entity.travel_y != 0;
 
         // 1. Плавное движение пикселей
         if is_moving {
-            let speed = 16; // <--- БЫЛО 32, СТАЛО 16 (шаг замедлен в 2 раза)
+            let speed = 16; 
             if entity.travel_x > 0 {
                 entity.pixel_x += speed;
-                if entity.pixel_x >= entity.target_x { entity.pixel_x = entity.target_x; entity.travel_x = 0; }
+                if entity.pixel_x >= entity.target_x { 
+                    entity.pixel_x = entity.target_x; 
+                    entity.travel_x = 0; 
+                    entity.x = (entity.pixel_x / 384) as u8;
+                }
             } else if entity.travel_x < 0 {
                 entity.pixel_x -= speed;
-                if entity.pixel_x <= entity.target_x { entity.pixel_x = entity.target_x; entity.travel_x = 0; }
+                if entity.pixel_x <= entity.target_x { 
+                    entity.pixel_x = entity.target_x; 
+                    entity.travel_x = 0; 
+                    entity.x = (entity.pixel_x / 384) as u8;
+                }
             }
             if entity.travel_y > 0 {
                 entity.pixel_y += speed;
-                if entity.pixel_y >= entity.target_y { entity.pixel_y = entity.target_y; entity.travel_y = 0; }
+                if entity.pixel_y >= entity.target_y { 
+                    entity.pixel_y = entity.target_y; 
+                    entity.travel_y = 0; 
+                    entity.y = (entity.pixel_y / 384) as u8;
+                }
             } else if entity.travel_y < 0 {
                 entity.pixel_y -= speed;
-                if entity.pixel_y <= entity.target_y { entity.pixel_y = entity.target_y; entity.travel_y = 0; }
+                if entity.pixel_y <= entity.target_y { 
+                    entity.pixel_y = entity.target_y; 
+                    entity.travel_y = 0; 
+                    entity.y = (entity.pixel_y / 384) as u8;
+                }
             }
         }
 
         // 2. Анимация
-        // БЫЛО: let speed = if is_moving { 2 } else { 1 };
-        // СТАЛО: 1 для ходьбы, чтобы ноги не дрыгались слишком быстро при медленном шаге
         let anim_speed = 1; 
         entity.anim_counter = entity.anim_counter.wrapping_add(anim_speed);
         if entity.anim_counter >= 20 {
@@ -172,8 +223,8 @@ pub fn tick_entities(
             entity.frame = if entity.frame == 0 { 1 } else { 0 };
         }
 
-        // 3. ИИ (срабатывает только когда стоим)
-        if !is_moving {
+        // 3. ИИ (НЕ РАБОТАЕТ, ЕСЛИ NPC В СКРИПТЕ)
+        if !is_moving && !entity.is_scripting {
             if entity.idle_timer > 0 {
                 entity.idle_timer -= 1;
             } else {
@@ -204,8 +255,6 @@ pub fn tick_entities(
                         entity.travel_x = entity.target_x - entity.pixel_x;
                         entity.travel_y = entity.target_y - entity.pixel_y;
                         
-                        // Если шаг медленный (16), то он занимает 24 кадра (0.4 сек).
-                        // Дадим им отдохнуть после шага подольше (60 кадров = 1 сек).
                         entity.idle_timer = 60; 
                     } else {
                         entity.idle_timer = 30;

@@ -13,21 +13,16 @@ pub struct MapEventsState {
     pub active_roofs: HashMap<(u8, u8, u8, u8, u8, u8), Vec<MapLayoutBlock>>,
 }
 
-// events.rs
 impl MapEventsState {
     pub fn new() -> Self {
         Self { active_roofs: HashMap::new() }
     }
 
-    /// Полный сброс при смене карты.
     pub fn reset(&mut self) {
         self.active_roofs.clear();
     }
 
-
-    /// Открывает крышу, если варп попал в зону, и ЗАКРЫВАЕТ, если варп снаружи.
     pub fn update_roofs_on_warp(&mut self, map: &mut MapData, x: i32, y: i32) {
-        // 1. Находим текущую зону игрока, чтобы узнать сдвиг второго слоя (крыш).
         let mut scnd_x = 0;
         let mut scnd_y = 0;
         for area in &map.areas {
@@ -39,12 +34,10 @@ impl MapEventsState {
             }
         }
 
-        // 2. Сдвигаем координаты игрока на слой крыш.
         let check_x = x + scnd_x;
         let check_y = y + scnd_y;
 
         for ev in &map.roof_events {
-            // 3. Проверяем, попали ли мы в зону крыши.
             let inside = check_x >= ev.dest_x as i32
                 && check_x < ev.dest_x as i32 + ev.width as i32
                 && check_y >= ev.dest_y as i32
@@ -53,7 +46,6 @@ impl MapEventsState {
             let key = (ev.dest_x, ev.dest_y, ev.src_x, ev.src_y, ev.width, ev.height);
 
             if inside {
-                // МЫ ВНУТРИ: Открываем крышу
                 if !self.active_roofs.contains_key(&key) {
                     let mut saved = Vec::new();
                     for dy in 0..ev.height as usize {
@@ -75,7 +67,6 @@ impl MapEventsState {
                     self.active_roofs.insert(key, saved);
                 }
             } else {
-                // МЫ СНАРУЖИ: Закрываем крышу обратно
                 if let Some(saved) = self.active_roofs.remove(&key) {
                     let mut idx = 0;
                     for dy in 0..ev.height as usize {
@@ -91,9 +82,7 @@ impl MapEventsState {
             }
         }
     }
-
 }
-
 
 pub fn check_tile_events(_player: &mut PlayerState, map: &mut MapData, events: &mut MapEventsState, nx: i32, ny: i32) -> MapEventResult {
     for warp in &map.warps {
@@ -123,16 +112,12 @@ pub fn check_tile_events(_player: &mut PlayerState, map: &mut MapData, events: &
     }
 
     for (key, evs) in unique_roofs {
-        // Проверяем, наступил ли игрок на ЛЮБОЙ триггер открытия из этой группы
         let is_opening = evs.iter().any(|ev| nx == ev.trig_x as i32 && ny == ev.trig_y as i32);
-        
-        // Проверяем, наступил ли игрок на ЛЮБОЙ триггер закрытия (на 1 тайл ниже)
         let is_closing = evs.iter().any(|ev| nx == ev.trig_x as i32 && ny == ev.trig_y as i32 + 1);
 
         if is_opening {
-            // НАСТУПИЛИ НА ОТКРЫТИЕ: Стираем крышу
             if !events.active_roofs.contains_key(&key) {
-                let ev = evs[0]; // Берем любую запись, т.к. src/dest/width/height у них одинаковые
+                let ev = evs[0];
                 let mut saved = Vec::new();
                 for y in 0..ev.height as usize {
                     for x in 0..ev.width as usize {
@@ -153,9 +138,8 @@ pub fn check_tile_events(_player: &mut PlayerState, map: &mut MapData, events: &
                 events.active_roofs.insert(key, saved);
             }
         } else if is_closing {
-            // НАСТУПИЛИ НА ЗАКРЫТИЕ (вышли на улицу): Возвращаем крышу
             if let Some(saved) = events.active_roofs.remove(&key) {
-                let ev = evs[0]; // Берем любую запись для размеров
+                let ev = evs[0];
                 let mut idx = 0;
                 for y in 0..ev.height as usize {
                     for x in 0..ev.width as usize {
@@ -173,12 +157,13 @@ pub fn check_tile_events(_player: &mut PlayerState, map: &mut MapData, events: &
     MapEventResult::None
 }
 
+// ВОТ ПОЛНАЯ ФУНКЦИЯ INTERACT
 pub fn interact(
     player: &mut PlayerState, 
     map: &mut MapData, 
     flags: &mut crate::game::flags::GameFlags,
-    game_script: &crate::game::script::text_parser::GameScript, // <-- Добавили парсер
-) -> Option<String> {
+    game_script: &crate::game::script::text_parser::GameScript,
+) -> Option<(String, Option<String>, String, String)> {
     let (dx, dy) = match player.facing {
         Facing::Up    => (0, -1),
         Facing::Down  => (0,  1),
@@ -192,21 +177,66 @@ pub fn interact(
     let target_idx = (target_y * 64 + target_x) as usize;
 
     // 1. Проверяем NPC
-    for entity in &map.entities {
+    for entity in &mut map.entities {
         if entity.x as i32 == target_x && entity.y as i32 == target_y && !entity.is_hidden {
-            // ВМЕСТО ХАРДКОДА БЕРЕМ ТЕКСТ ИЗ ИГРЫ (ID 512 = 0x0200)
-            let mut text = game_script.get(0x0200);
             
-            // Убираем лишние теги, которые пока не умеем обрабатывать
-            text = text.replace("{N}", "\n");
-            text = text.replace("{W1}", "").replace("{W2}", "");
+            entity.is_talking = true;
+
+            let dx = player.tile_x as i32 - entity.x as i32;
+            let dy = player.tile_y as i32 - entity.y as i32;
+            if dx.abs() > dy.abs() {
+                entity.facing = if dx > 0 { 3 } else { 2 };
+            } else {
+                entity.facing = if dy > 0 { 1 } else { 0 };
+            }
+
+            // Ищем ID текста
+            let mut txt_id = 0x0200; 
+            if let Some(id) = map.entity_events.get_text_id(&entity.event_id) {
+                txt_id = id;
+            } else if let Some(id) = map.entity_events.get_text_id(&entity.sprite_id.to_string()) {
+                txt_id = id;
+            }
+
+            // Ищем скрипт
+            // Если скрипт уже играл - не запускаем его снова
+            let script_name = if entity.script_played {
+                None
+            } else {
+                map.entity_events.get_script_name(&entity.event_id)
+                    .or_else(|| map.entity_events.get_script_name(&entity.sprite_id.to_string()))
+            };
+
+            let mut text = game_script.get(txt_id);
+            
+            // Очистка текста от тегов
+            text = text.replace("{N}", "\n")
+                       .replace("{W1}", "").replace("{W2}", "")
+                       .replace("{D1}", "").replace("{D2}", "").replace("{D3}", "")
+                       .replace("{CLEAR}", "");
+
             text = text.replace("{LEADER}", "BOWIE");
+            text = text.replace("{NAME;1}", "SARAH");
+            text = text.replace("{NAME;2}", "CHESTER");
+            text = text.replace("{NAME;3}", "JAHA");
+            text = text.replace("{NAME;4}", "KAZIN");
+            text = text.replace("{NAME;5}", "SLADE");
+            // ... добавь остальных по мере надобности
+
+            // Убираем оставшиеся теги
+            let mut final_text = String::new();
+            let mut skip = false;
+            for c in text.chars() {
+                if c == '{' { skip = true; }
+                if !skip { final_text.push(c); }
+                if c == '}' { skip = false; }
+            }
             
-            return Some(text);
+            return Some((final_text, script_name, entity.event_id.clone(), entity.sprite_name.clone()));
         }
     }
 
-    // 2. Проверяем предметы (как было)
+    // 2. Проверяем предметы
     let mut found_item = None;
     for (i, item) in map.items.iter().enumerate() {
         if item.x as i32 == target_x && item.y as i32 == target_y {

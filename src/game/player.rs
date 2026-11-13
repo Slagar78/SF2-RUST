@@ -238,9 +238,9 @@ impl PlayerState {
     pub fn interact(
         &mut self, 
         map: &mut MapData, 
-        flags: &mut crate::game::flags::GameFlags,
-        game_script: &crate::game::script::text_parser::GameScript,
-    ) -> Option<String> {
+        flags: &mut crate::game::flags::GameFlags, 
+        game_script: &crate::game::script::text_parser::GameScript
+        ) -> Option<(String, Option<String>, String, String)> {
         crate::game::map::events::interact(self, map, flags, game_script)
     }
 

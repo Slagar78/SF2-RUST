@@ -25,6 +25,7 @@ pub struct PortraitData  {
     pub tiles: Vec<u8>,
     pub palette: Vec<Color>,
     pub eyes: Vec<EyeEntry>,
+    pub mouth: Vec<EyeEntry>, // <-- ДОБАВЛЕНО
 }
 
 pub fn load_portrait(index: usize) -> Option<PortraitData> {
@@ -46,9 +47,19 @@ pub fn load_portrait(index: usize) -> Option<PortraitData> {
         pos += 4;
     }
     
-    // 2. Пропускаем данные рта (пока не нужно)
+    // 2. Читаем данные рта (ВМЕСТО ПРОПУСКА)
     let mouth_count = u16::from_be_bytes([data[pos], data[pos+1]]) as usize;
-    pos += 2 + (mouth_count * 4);
+    pos += 2;
+    
+    let mut mouth = Vec::new();
+    for _ in 0..mouth_count {
+        let x = data[pos];
+        let y = data[pos+1];
+        let alt_x = data[pos+2];
+        let alt_y = data[pos+3];
+        mouth.push(EyeEntry { x, y, alt_x, alt_y });
+        pos += 4;
+    }
 
     // 3. Читаем палитру (16 цветов = 32 байта)
     let mut palette = Vec::new();
@@ -61,5 +72,5 @@ pub fn load_portrait(index: usize) -> Option<PortraitData> {
     let comp_tiles = &data[pos..];
     let tiles = decompressor::decompress(comp_tiles).unwrap_or_default();
 
-    Some(PortraitData { tiles, palette, eyes })
+    Some(PortraitData { tiles, palette, eyes, mouth })
 }

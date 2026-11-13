@@ -7,6 +7,7 @@ pub enum GameState {
     WitchScreen,
     Map,
     Dialogue,
+    Script,
     Menu,
     MemberMenu,
     MemberStatus,

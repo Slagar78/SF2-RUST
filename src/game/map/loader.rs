@@ -69,6 +69,7 @@ pub struct MapData {
     pub areas: Vec<MapArea>,
     pub animations: Vec<MapAnimation>,
     pub entities: Vec<MapEntity>,
+    pub entity_events: crate::game::script::entity_events::EntityEvents,
 }
 
 pub fn load_map_names() -> HashMap<String, u8> {
@@ -176,9 +177,15 @@ pub fn load_map_data(map_id: u8) -> MapData {
         }
     }
 
-  let entities = crate::game::map::entities::load_entities(map_id);
+    let entities = crate::game::map::entities::load_entities(map_id);
+    
+    // Загружаем скрипты диалогов для этой карты
+    let entity_events = crate::game::script::entity_events::EntityEvents::new(map_id); // <-- ДОБАВИТЬ
 
-    MapData { layout, blockset, tilesets, palette, warps, step_events, items, roof_events, areas, animations, entities}
+    MapData { 
+        layout, blockset, tilesets, palette, warps, step_events, items, roof_events, areas, animations, entities,
+        entity_events,
+    }
 }
 
 struct BitStream<'a> {

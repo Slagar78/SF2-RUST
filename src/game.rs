@@ -107,6 +107,9 @@ pub fn run() {
     let mut last_input: u8 = 0;
     let mut dialog_state = crate::game::script::dialog::DialogState::new();
     let game_script = crate::game::script::text_parser::GameScript::new();
+    let mut script_engine = crate::game::script::script_engine::ScriptEngine::new();
+    let portrait_props = crate::game::script::portrait_properties::PortraitProperties::new();
+    let mut current_talking_entity = String::new();
     
     let mut diamond_menu_slot: Option<usize> = None;
 
@@ -324,9 +327,20 @@ pub fn run() {
 
                             // Если нажата D — пытаемся заговорить с NPC
                             if is_d_pressed {
-                            if let Some(text) = player_state.interact(&mut map_data, &mut game_flags, &game_script) {
-                                dialog_state.open(text, &mut window_engine); // Передаем window_engine
+                            // Достаем 4 элемента, где 4-й - это имя спрайта (например, MAPSPRITE_ASTRAL)
+                            if let Some((text, script, event_id, sprite_name)) = player_state.interact(&mut map_data, &mut game_flags, &game_script) {
+                                // Портрет ищем по имени спрайта, а не по ID
+                                let portrait_id = portrait_props.get_portrait_id(&sprite_name);
+                                
+                                dialog_state.open(text, &mut window_engine, &mut vram, &mut sprite_palette, portrait_id); 
                                 game_state = GameState::Dialogue;
+                                
+                                // А для скрипта оставляем числовой ID
+                                current_talking_entity = event_id; 
+                                
+                                if let Some(scr) = script {
+                                    script_engine.start(&scr);
+                                }
                             }
                                 else {
                                     // Если D, но NPC нет — открываем меню
@@ -361,21 +375,94 @@ pub fn run() {
                 // ====== DIALOGUE (Диалоговое окно) ============================
                 // ==============================================================
                 GameState::Dialogue => {
-                    dialog_state.tick();
+                    dialog_state.tick(&mut window_engine);
                     
                     let current_input = input_state.current_player_input;
                     
                     if (current_input & (INPUT_C | INPUT_B)) != 0 && (last_input & (INPUT_C | INPUT_B)) == 0 {
                         if dialog_state.visible_chars >= dialog_state.text.chars().count() {
-                            dialog_state.close(&mut window_engine); // Передаем window_engine
+                            dialog_state.close(&mut window_engine);
                             game_state = GameState::Map;
                             player_state.input_delayer = 10;
+
+                            // Сбрасываем флаг диалога и возвращаем исходное направление
+                            for entity in &mut map_data.entities {
+                                if entity.is_talking {
+                                    entity.is_talking = false;
+                                    entity.facing = entity.original_facing;
+                                }
+                            }
+
+                            // ЕСЛИ ЕСТЬ СКРИПТ - ПЕРЕКЛЮЧАЕМСЯ НА ЕГО ВЫПОЛНЕНИЕ
+                            if script_engine.is_running() {
+                                game_state = GameState::Script;
+                            }
                         } else {
                             dialog_state.visible_chars = dialog_state.text.chars().count();
                         }
                     }
                     
+                    // ОБНОВЛЯЕМ МИР
+                    player_state.tick(&mut map_data, &mut events_state);
+                    
+                    for anim in &mut map_data.animations {
+                        anim.update(&mut map_data.tilesets);
+                    }
+                    crate::game::map::entities::tick_entities(
+                        &mut map_data.entities, &map_data.layout, player_state.tile_x, player_state.tile_y, frame_counter
+                    );
+                    let target_x = player_state.pixel_x / 16;
+                    let target_y = player_state.pixel_y / 16;
+                    map_state.update_view(target_x, target_y, &map_data);
+                    map_state.tick();
+                    
                     last_input = current_input;
+                    should_render = true;
+                }
+
+                // ==============================================================
+                // ====== SCRIPT (Выполнение скрипта: движение NPC) ============
+                // ==============================================================
+                GameState::Script => {
+                    let is_running = script_engine.tick(&mut map_data.entities, &current_talking_entity);
+                    
+                    // Обновляем анимации, игрока и NPC
+                    player_state.tick(&mut map_data, &mut events_state);
+                    
+                    for anim in &mut map_data.animations {
+                        anim.update(&mut map_data.tilesets);
+                    }
+                    crate::game::map::entities::tick_entities(
+                        &mut map_data.entities, &map_data.layout, player_state.tile_x, player_state.tile_y, frame_counter
+                    );
+                    
+                    let target_x = player_state.pixel_x / 16;
+                    let target_y = player_state.pixel_y / 16;
+                    map_state.update_view(target_x, target_y, &map_data);
+                    map_state.tick();
+
+                    if !is_running {
+                        // Помечаем, что скрипт выполнен, чтобы он не повторялся
+                        if let Some(entity) = map_data.entities.iter_mut().find(|e| e.event_id == current_talking_entity) {
+                            entity.script_played = true;
+                            entity.is_scripting = false;
+
+                            // ПОВОРАЧИВАЕМ NPC ЛИЦОМ К ИГРОКУ
+                            let dx = player_state.tile_x - entity.x as i32;
+                            let dy = player_state.tile_y - entity.y as i32;
+                            if dx.abs() > dy.abs() {
+                                entity.facing = if dx > 0 { 3 } else { 2 };
+                            } else {
+                                entity.facing = if dy > 0 { 1 } else { 0 };
+                            }
+                            entity.original_facing = entity.facing;
+                        }
+
+                        game_state = GameState::Map;
+                        player_state.input_delayer = 10;
+                    }
+                    
+                    last_input = input_state.current_player_input;
                     should_render = true;
                 }
 
@@ -747,7 +834,15 @@ pub fn run() {
         // ====== ОТРИСОВКА КАДРА (рисуем то, что видит игрок) ==========
         // ==============================================================
         if should_render {
-            if game_state == GameState::Map || game_state == GameState::Dialogue || game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus || game_state == GameState::MagicMenu {
+            if matches!(game_state, 
+                GameState::Map | 
+                GameState::Dialogue | 
+                GameState::Script | 
+                GameState::Menu | 
+                GameState::MemberMenu | 
+                GameState::MemberStatus | 
+                GameState::MagicMenu
+            ) {
                 renderer.texture.with_lock(None, |buffer, pitch| {
 
                     let p_x = player_state.pixel_x / 16;
@@ -811,6 +906,7 @@ pub fn run() {
                 GameState::WitchScreen |
                 GameState::Map | 
                 GameState::Dialogue | 
+                GameState::Script |
                 GameState::Menu | 
                 GameState::MemberMenu | 
                 GameState::MemberStatus | 
@@ -820,6 +916,7 @@ pub fn run() {
             let crop_sides = matches!(game_state, 
                 GameState::Map | 
                 GameState::Dialogue | 
+                GameState::Script |
                 GameState::Menu | 
                 GameState::MemberMenu | 
                 GameState::MemberStatus | 
