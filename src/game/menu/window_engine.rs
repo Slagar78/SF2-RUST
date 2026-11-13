@@ -244,8 +244,8 @@ impl WindowEngine {
                             ty += 4;
                         }
 
-                        let is_magic_icon = tile_idx >= 0x140 && tile_idx <= 0x150;
-                        if is_magic_icon {
+                    let is_ui_icon = tile_idx >= 0x100 && tile_idx < 0x300;
+                    if is_ui_icon {
                             if let Some(bg_tile) = vram.tile(0x20) {
                                 for py in 0..8 {
                                     for px in 0..8 {

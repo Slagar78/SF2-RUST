@@ -297,6 +297,7 @@ pub fn run() {
                             &mut player_state, &mut map_data, &mut events_state,
                             tx as i32, ty as i32,
                         );
+                          player_state.warp_anim = None;
                     }
 
                     // 4. Обновляем игрока, анимации, NPC и камеру
@@ -311,6 +312,8 @@ pub fn run() {
                         &map_data.layout, 
                         player_state.tile_x,
                         player_state.tile_y,
+                        player_state.pixel_x,
+                        player_state.pixel_y,
                         frame_counter
                     );
 
@@ -411,7 +414,8 @@ pub fn run() {
                         anim.update(&mut map_data.tilesets);
                     }
                     crate::game::map::entities::tick_entities(
-                        &mut map_data.entities, &map_data.layout, player_state.tile_x, player_state.tile_y, frame_counter
+                        &mut map_data.entities, &map_data.layout, player_state.tile_x, player_state.tile_y,
+                        player_state.pixel_x, player_state.pixel_y, frame_counter
                     );
                     let target_x = player_state.pixel_x / 16;
                     let target_y = player_state.pixel_y / 16;
@@ -435,7 +439,8 @@ pub fn run() {
                         anim.update(&mut map_data.tilesets);
                     }
                     crate::game::map::entities::tick_entities(
-                        &mut map_data.entities, &map_data.layout, player_state.tile_x, player_state.tile_y, frame_counter
+                        &mut map_data.entities, &map_data.layout, player_state.tile_x, player_state.tile_y,
+                        player_state.pixel_x, player_state.pixel_y, frame_counter
                     );
                     
                     let target_x = player_state.pixel_x / 16;
@@ -533,8 +538,21 @@ pub fn run() {
                         last_input = current_input;
                     }
 
+                    // Мир продолжает жить под меню
                     player_state.tick(&mut map_data, &mut events_state);
-                    
+                    for anim in &mut map_data.animations {
+                        anim.update(&mut map_data.tilesets);
+                    }
+                    crate::game::map::entities::tick_entities(
+                        &mut map_data.entities,
+                        &map_data.layout,
+                        player_state.tile_x,
+                        player_state.tile_y,
+                        player_state.pixel_x,
+                        player_state.pixel_y,
+                        frame_counter
+                    );
+
                     if menu_anim_delay > 0 {
                         menu_anim_delay -= 1;
                         menu_anim_timer = 20;
@@ -682,10 +700,26 @@ pub fn run() {
                         }
                     }
 
-                    if !member_menu.closing {
-                        member_menu.draw(&mut window_engine, &force_members);
-                    }
-                    should_render = true;
+                  if !member_menu.closing {
+                      member_menu.draw(&mut window_engine, &force_members);
+                  }
+
+                  // Мир продолжает жить под меню
+                  player_state.tick(&mut map_data, &mut events_state);
+                  for anim in &mut map_data.animations {
+                      anim.update(&mut map_data.tilesets);
+                  }
+                  crate::game::map::entities::tick_entities(
+                      &mut map_data.entities,
+                      &map_data.layout,
+                      player_state.tile_x,
+                      player_state.tile_y,
+                      player_state.pixel_x,
+                      player_state.pixel_y,
+                      frame_counter
+                  );
+
+                  should_render = true;
                 }
 
                 // ==============================================================
@@ -740,10 +774,26 @@ pub fn run() {
                         member_status.tick_blink(&mut window_engine);
                     }
 
-                    if !member_status.closing {
-                        member_status.draw(&mut window_engine, &force_members[member_status.member_index]);
-                    }
-                    should_render = true;
+                  if !member_status.closing {
+                      member_status.draw(&mut window_engine, &force_members[member_status.member_index]);
+                  }
+
+                  // Мир продолжает жить под меню
+                  player_state.tick(&mut map_data, &mut events_state);
+                  for anim in &mut map_data.animations {
+                      anim.update(&mut map_data.tilesets);
+                  }
+                  crate::game::map::entities::tick_entities(
+                      &mut map_data.entities,
+                      &map_data.layout,
+                      player_state.tile_x,
+                      player_state.tile_y,
+                      player_state.pixel_x,
+                      player_state.pixel_y,
+                      frame_counter
+                  );
+
+                  should_render = true;
                 }
 
                 // ==============================================================
@@ -827,6 +877,22 @@ pub fn run() {
                     if !magic_menu.closing {
                         magic_menu.draw(&mut window_engine, &force_members);
                     }
+
+                    // Мир продолжает жить под меню
+                    player_state.tick(&mut map_data, &mut events_state);
+                    for anim in &mut map_data.animations {
+                        anim.update(&mut map_data.tilesets);
+                    }
+                    crate::game::map::entities::tick_entities(
+                        &mut map_data.entities,
+                        &map_data.layout,
+                        player_state.tile_x,
+                        player_state.tile_y,
+                        player_state.pixel_x,
+                        player_state.pixel_y,
+                        frame_counter
+                    );
+
                     should_render = true;
                 }
             }

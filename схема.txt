@@ -1,75 +1,96 @@
 C:\my_project\SF2-RUST\
 │
-├── Cargo.toml                      <-- Crate manifest: package metadata and dependencies
+├── Cargo.toml                      <-- Crate manifest
 │
 ├── src\
-│   ├── sf2.rs                      <-- Entry point: declares engine/game modules and starts main
+│   ├── sf2.rs                      <-- Entry point: declares modules and starts main
 │   │
-│   ├── engine.rs                   <-- Engine module root (font.rs законсервирован, пока не нужен)
+│   ├── engine.rs                   <-- Engine module root
 │   ├── engine\
-│   │   ├── input.rs                <-- Input handling (A, B, C, directional pad, Enter)
-│   │   ├── decompressor.rs         <-- STACK and Basic decompressors
-│   │   ├── base_tiles.rs           <-- VRAM emulation, basetiles.bin loading, VRAM map constants
-│   │   ├── time.rs                 <-- Timer and fixed-timestep game loop
-│   │   ├── renderer.rs             <-- SDL3 wrapper (window, textures, pixel buffer, scaling/centering)
-│   │   └── font.rs                 <-- (Временно отключен) Загрузчик VWF шрифта для будущих нужд
+│   │   ├── input.rs                <-- Input (A, B, C, D-pad, Enter)
+│   │   ├── decompressor.rs         <-- STACK + Basic decompressors
+│   │   ├── base_tiles.rs           <-- VRAM emulation (1 MB), карта памяти VRAM
+│   │   ├── time.rs                 <-- Fixed-timestep clock (60 Hz)
+│   │   ├── renderer.rs             <-- SDL3 + xBRZ 2x + Nearest 1.5x + кэш по хэшу
+│   │   └── font.rs                 <-- VWF-шрифт (законсервирован, пока не нужен)
 │   │
-│   ├── game.rs                     <-- Main game loop and game-state switching (handles rendering modes)
+│   ├── game.rs                     <-- Главный цикл + все GameState
 │   ├── game\
-│   │   ├── state.rs                <-- GameState enum (Launcher, SegaLogo, Map, Dialogue, Script, Menu, etc.)
-│   │   ├── render_mode.rs          <-- RenderMode enum (Original 320x224, Normal 768x672)
-│   │   ├── player.rs               <-- Bowie movement (grid, collisions, turn-in-place, ladders, warps)
-│   │   ├── flags.rs                <-- GameFlags (global story/event boolean states)
-│   │   ├── ally_parser.rs          <-- Parser for .asm data (names, classes, stats, mapsprite)
-│   │   ├── item_parser.rs          <-- Parser for itemnames.asm and itemdefs.asm
-│   │   ├── transition.rs           <-- Screen fade logic for warps (fade out/in)
+│   │   ├── state.rs                <-- GameState enum
+│   │   ├── render_mode.rs          <-- RenderMode (Original 320×224, Normal 768×672)
+│   │   ├── player.rs               <-- Bowie: grid, коллизии, лестницы, warps, WarpAnim
+│   │   ├── flags.rs                <-- GameFlags (глобальные boolean-состояния)
+│   │   ├── ally_parser.rs          <-- .asm → данные союзников (класс, статы, items)
+│   │   ├── item_parser.rs          <-- itemnames.asm + itemdefs.asm
+│   │   ├── transition.rs           <-- Fade-out / Hold / Fade-in (варпы)
 │   │   │
-│   │   ├── script.rs               <-- Script system root module
+│   │   ├── script.rs               <-- Script system root
 │   │   ├── script\
-│   │   │   ├── text_parser.rs      <-- Parser for gamescript.txt (читает ID строк и сам текст)
-│   │   │   ├── dialog.rs           <-- Dialogue state machine (печать текста, окно, анимация рта/глаз)
-│   │   │   ├── entity_events.rs    <-- NEW: Parser for s2_entityevents.asm (связь NPC -> Скрипт -> Текст)
-│   │   │   ├── portrait_properties.rs <-- NEW: Parser for spritedialogproperties.asm (связь Спрайт -> Портрет)
-│   │   │   └── script_engine.rs    <-- NEW: Parser for scripts_1.asm (движение NPC, повороты, паузы)
+│   │   │   ├── text_parser.rs      <-- gamescript.txt (ID → текст)
+│   │   │   ├── dialog.rs           <-- Окно диалога, анимация рта/глаз
+│   │   │   ├── entity_events.rs    <-- s2_entityevents.asm (NPC → скрипт → текст)
+│   │   │   ├── portrait_properties.rs <-- spritedialogproperties.asm
+│   │   │   └── script_engine.rs    <-- scripts_*.asm (движение NPC, повороты, паузы)
 │   │   │
-│   │   ├── map.rs                  <-- Map module root: connects map submodules
+│   │   ├── map.rs                  <-- Map module root
 │   │   ├── map\
-│   │   │   ├── finder.rs           <-- Parser for entries.asm, map paths, and 2-areas.asm
-│   │   │   ├── loader.rs           <-- Map loading (blocks, layout, tilesets, zones, warps)
-│   │   │   ├── anim.rs             <-- Universal 32-tile animation (water, torches, etc.)
-│   │   │   ├── camera.rs           <-- Camera with dead zones, subpixel scrolling, can_open_menu()
-│   │   │   ├── draw.rs             <-- Renders two map layers (H32 clipping, anim tile replacement)
-│   │   │   ├── events.rs           <-- Event handling (warps, roofs, items, NPC talk)
-│   │   │   └── entities.rs         <-- NPC parser (s1_entities.asm), smooth movement AI, is_scripting flag
+│   │   │   ├── finder.rs           <-- entries.asm, map paths, 2-areas.asm
+│   │   │   ├── loader.rs           <-- blocks, layout, tilesets, zones, warps
+│   │   │   ├── anim.rs             <-- Универсальные 32-tile анимации (вода/огонь)
+│   │   │   ├── camera.rs           <-- Dead zones, subpixel-scroll, can_open_menu()
+│   │   │   ├── draw.rs             <-- Два слоя карты (H32 clipping, anim-замена)
+│   │   │   ├── events.rs           <-- Warps, roofs, Step, Table (0x2800), NPC talk
+│   │   │   └── entities.rs         <-- NPC (s1_entities.asm), плавное движение, AI
 │   │   │
-│   │   ├── menu.rs                 <-- Menu module root: connects menu submodules
+│   │   ├── menu.rs                 <-- Menu module root
 │   │   ├── menu\
-│   │   │   ├── window_engine.rs    <-- Window engine (CreateWindow, tilemaps, animation, backgrounds)
-│   │   │   ├── layouts.rs          <-- Window layouts (Diamond Menu, portrait from ASM)
-│   │   │   ├── diamond_menu.rs     <-- Diamond Menu logic and rendering (cross-shaped menu)
-│   │   │   ├── member_menu.rs      <-- Party list screen (portrait, summary, list, red highlight)
-│   │   │   ├── magic_menu.rs       <-- Magic menu (spell list, Egress/Empty icons, red highlight)
-│   │   │   ├── member_status_menu.rs <-- Status screen (ATT, DEF, KILLS, GOLD, blinking)
-│   │   │   ├── portrait.rs         <-- Portrait loading/parsing (eyes, mouth, palette, tiles)
-│   │   │   └── draw_menu.rs        <-- Text rendering in Diamond Menu (MEMBER, MAGIC)
+│   │   │   ├── window_engine.rs    <-- Окна, тайлмапы, анимация, draw_windows
+│   │   │   ├── layouts.rs          <-- Макеты окон (Diamond, Portrait)
+│   │   │   ├── draw_menu.rs        <-- Текст в Diamond Menu
+│   │   │   ├── member_menu.rs      <-- Список отряда + портрет + summary
+│   │   │   ├── magic_menu.rs       <-- Список заклинаний (иконки Egress/Empty)
+│   │   │   ├── member_status_menu.rs <-- Статы (ATT/DEF/KILLS/GOLD), мигание
+│   │   │   └── portrait.rs         <-- Загрузка портретов (глаза, рот, палитра)
+│   │   │   [diamond_menu.rs]       <-- ⚠️ Отдельного файла нет — логика в game.rs
 │   │   │
-│   │   ├── screens.rs              <-- Screens module root: connects screen submodules
+│   │   ├── screens.rs              <-- Screens module root
 │   │   └── screens\
-│   │       ├── launcher.rs         <-- Startup UI (Normal / Original resolution buttons)
-│   │       ├── segalogo.rs         <-- SEGA logo animation
-│   │       ├── segalogo_data.rs    <-- Logo frame data
-│   │       ├── title.rs            <-- Title screen (H40)
-│   │       └── witch.rs            <-- Witch screen
+│   │       ├── launcher.rs         <-- Startup UI (Normal / Original)
+│   │       ├── segalogo.rs         <-- SEGA-logo анимация (⚠️ читает диск каждый кадр)
+│   │       ├── segalogo_data.rs    <-- Данные кадров логотипа
+│   │       ├── title.rs            <-- Title screen (H40, fade, scroll)
+│   │       └── witch.rs            <-- Witch screen (голова + пузыри)
 │   │
-│   └── data\                       <-- Original asset directory (fully matches sf2disasm structure)
-│       ├── ...
-│       ├── spritedialogproperties.asm <-- NEW: Оригинальный ASM файл свойств спрайтов
+│   └── data\                       <-- Ассеты + asm (совпадает с sf2disasm)
+│       ├── map_names.txt           <-- ID → имя карты
+│       ├── maps\
+│       │   ├── entries.asm         <-- Пути ко всем картам
+│       │   ├── entries\mapXX\...   <-- Блоки, layout, зоны, варпы, events
+│       │   └── mapsetupsstorage.asm <-- Точные пути s2_entityevents, scripts
+│       │
+│       ├── stats\
+│       │   ├── allies\             <-- allynames, allymapsprites, allystartdefs
+│       │   ├── allies\classes\     <-- classnames, classdefs, classtypes
+│       │   ├── allies\stats\       <-- allystatsXX.asm (HP, MP, ATT, DEF, spells)
+│       │   └── items\              <-- itemnames.asm, itemdefs.asm
+│       │
+│       ├── scripting\text\
+│       │   ├── gamescript.txt      <-- ID → текст диалогов
+│       │   └── asciitotextsymbolmap.asm <-- карта ASCII → индекс шрифта
+│       │
+│       ├── spritedialogproperties.asm <-- Спрайт → портрет
+│       │
 │       └── graphics\
-│           ├── ...
-│           ├── portraits\          <-- NEW: Папка с портретами
-│           │   ├── portraitnames.txt  <-- Список имен портретов
-│           │   └── portrait00.bin ... <-- Бинарники портретов
-│           └── mapsprites\
-│               ├── mapspritenames.txt <-- Parsed to get exact NPC sprite IDs
-│               ├── mapsprite000-0.bin
-│               └── ...
+│           ├── tech\               <-- basetiles, basepalette, шрифт, segalogo
+│           ├── portraits\          <-- portraitXX.bin, portraitnames.txt
+│           ├── mapsprites\         <-- mapspriteXXX-N.bin, mapspritenames.txt
+│           ├── icons\
+│           │   ├── item\           <-- iconXXX.bin (192 байт = 6 тайлов 2×3)
+│           │   └── spell\          <-- iconXXX.bin (то же)
+│           ├── specialscreens\
+│           │   ├── titlescreen\    <-- titlescreentiles/layout/palette
+│           │   └── witchscreen\    <-- witchtiles/layout/palette
+│           └── maps\
+│               ├── maptilesets\    <-- maptilesetXXX.bin
+│               ├── mappalettes\    <-- mappaletteXX.bin
+│               └── mapblocks\      <-- блоки (при необходимости)

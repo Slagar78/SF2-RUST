@@ -214,7 +214,7 @@ impl MemberStatusState {
             window_engine.write_string(slot, 2, 1, &member.class);
             window_engine.write_string(slot, 8, 1, &member.name);
             
-            window_engine.write_string(slot, 2, 3, &format!("LV      {}", member.level));
+            window_engine.write_string(slot, 2, 3, &format!("LV    {}", member.level));
             window_engine.write_string(slot, 2, 5, &format!("HP {:>2}/{:>2}", member.hp, member.max_hp)); 
             window_engine.write_string(slot, 2, 7, &format!("MP {:>2}/{:>2}", member.mp, member.max_mp)); 
             window_engine.write_string(slot, 2, 9, "EXP    0"); 

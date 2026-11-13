@@ -157,7 +157,6 @@ pub fn check_tile_events(_player: &mut PlayerState, map: &mut MapData, events: &
     MapEventResult::None
 }
 
-// ВОТ ПОЛНАЯ ФУНКЦИЯ INTERACT
 pub fn interact(
     player: &mut PlayerState, 
     map: &mut MapData, 
@@ -170,27 +169,43 @@ pub fn interact(
         Facing::Left  => (-1, 0),
         Facing::Right => ( 1, 0),
     };
+    
+    // Клетка прямо перед игроком
     let target_x = player.tile_x + dx;
     let target_y = player.tile_y + dy;
 
     if target_x < 0 || target_x >= 64 || target_y < 0 || target_y >= 64 { return None; }
     let target_idx = (target_y * 64 + target_x) as usize;
 
-    // 1. Проверяем NPC
+    // ═══ НОВОЕ: если перед нами СТОЛ (Table = 0x2800), NPC ищем на клетку дальше ═══
+    let block_flags = map.layout[target_idx].flags;
+    let is_table = (block_flags & 0x3C00) == 0x2800;
+    
+    let (npc_x, npc_y) = if is_table {
+        let far_x = target_x + dx;
+        let far_y = target_y + dy;
+        if far_x < 0 || far_x >= 64 || far_y < 0 || far_y >= 64 {
+            return None;  // стол у края карты — за ним никого
+        }
+        (far_x, far_y)
+    } else {
+        (target_x, target_y)
+    };
+
+    // 1. Проверяем NPC (по расширенным координатам, если стол)
     for entity in &mut map.entities {
-        if entity.x as i32 == target_x && entity.y as i32 == target_y && !entity.is_hidden {
+        if entity.x as i32 == npc_x && entity.y as i32 == npc_y && !entity.is_hidden {
             
             entity.is_talking = true;
 
-            let dx = player.tile_x as i32 - entity.x as i32;
-            let dy = player.tile_y as i32 - entity.y as i32;
-            if dx.abs() > dy.abs() {
-                entity.facing = if dx > 0 { 3 } else { 2 };
+            let dx_p = player.tile_x as i32 - entity.x as i32;
+            let dy_p = player.tile_y as i32 - entity.y as i32;
+            if dx_p.abs() > dy_p.abs() {
+                entity.facing = if dx_p > 0 { 3 } else { 2 };
             } else {
-                entity.facing = if dy > 0 { 1 } else { 0 };
+                entity.facing = if dy_p > 0 { 1 } else { 0 };
             }
 
-            // Ищем ID текста
             let mut txt_id = 0x0200; 
             if let Some(id) = map.entity_events.get_text_id(&entity.event_id) {
                 txt_id = id;
@@ -198,8 +213,6 @@ pub fn interact(
                 txt_id = id;
             }
 
-            // Ищем скрипт
-            // Если скрипт уже играл - не запускаем его снова
             let script_name = if entity.script_played {
                 None
             } else {
@@ -209,7 +222,6 @@ pub fn interact(
 
             let mut text = game_script.get(txt_id);
             
-            // Очистка текста от тегов
             text = text.replace("{N}", "\n")
                        .replace("{W1}", "").replace("{W2}", "")
                        .replace("{D1}", "").replace("{D2}", "").replace("{D3}", "")
@@ -221,9 +233,7 @@ pub fn interact(
             text = text.replace("{NAME;3}", "JAHA");
             text = text.replace("{NAME;4}", "KAZIN");
             text = text.replace("{NAME;5}", "SLADE");
-            // ... добавь остальных по мере надобности
 
-            // Убираем оставшиеся теги
             let mut final_text = String::new();
             let mut skip = false;
             for c in text.chars() {
@@ -236,7 +246,9 @@ pub fn interact(
         }
     }
 
-    // 2. Проверяем предметы
+    // 2. Проверяем предметы (только на клетке ПЕРЕД игроком, без расширения)
+    //    Предметы на столе ищутся отдельно — через флаги Vase/Barrel/Shelf/Chest,
+    //    а не через Table.
     let mut found_item = None;
     for (i, item) in map.items.iter().enumerate() {
         if item.x as i32 == target_x && item.y as i32 == target_y {

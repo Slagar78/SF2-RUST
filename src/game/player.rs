@@ -27,6 +27,17 @@ pub enum MoveResult {
     Warp(u8, u8, u8, u8),
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct WarpAnim {
+    pub dest_map: u8,
+    pub dest_x: u8,
+    pub dest_y: u8,
+    pub facing: u8,
+    pub progress: f32,
+    pub warp_tile_x: i32,  //куда сжимаемся (клетка D0)
+    pub warp_tile_y: i32,
+}
+
 pub struct PlayerState {
     pub pixel_x: i32, pub pixel_y: i32,
     /// Snap target in fixed-point units; `pixel_*` lerps toward this.
@@ -49,9 +60,8 @@ pub struct PlayerState {
     /// Warp request queued for the moment the current step completes.
     /// The teleport is deferred so the sprite arrives exactly tile-centered.
     pub pending_warp: Option<(u8, u8, u8, u8)>,
-    /// Landing tile of the most recent warp; suppresses immediate re-trigger
-    /// of the same warp tile on arrival.
     pub last_warp_tile: Option<(i32, i32)>,
+    pub warp_anim: Option<WarpAnim>,
 }
 
 /// Direction-to-offset helper. Currently unused; kept for potential
@@ -77,6 +87,7 @@ impl PlayerState {
             anim_counter: 1, mapsprite_frame: 0,
             current_direction: None, input_delayer: 0,
             on_stairs: false, pending_warp: None, last_warp_tile: None,
+            warp_anim: None,
         }
     }
 
@@ -93,6 +104,9 @@ impl PlayerState {
             self.last_warp_tile = Some((x as i32, y as i32));
             return MoveResult::Warp(dest_map, x, y, facing);
         }
+
+        // ═══ NEW: во время анимации входа в пещеру ввод игнорируется ═══
+        if self.warp_anim.is_some() { return MoveResult::None; }
 
         if self.input_delayer > 0 {
             self.input_delayer -= 1;
@@ -200,40 +214,70 @@ impl PlayerState {
         MoveResult::None
     }
 
-    fn begin_step(&mut self, dx: i32, dy: i32, map: &mut MapData, _events: &mut MapEventsState) -> Option<MoveResult> {
-        let nx = self.tile_x + dx;
-        let ny = self.tile_y + dy;
-        if nx < 0 || nx >= 64 || ny < 0 || ny >= 64 { return None; }
+  fn begin_step(&mut self, dx: i32, dy: i32, map: &mut MapData, _events: &mut MapEventsState) -> Option<MoveResult> {
+      let nx = self.tile_x + dx;
+      let ny = self.tile_y + dy;
+      if nx < 0 || nx >= 64 || ny < 0 || ny >= 64 { return None; }
 
-        let idx = (ny * 64 + nx) as usize;
-        if idx >= map.layout.len() { return None; }
+      let idx = (ny * 64 + nx) as usize;
+      if idx >= map.layout.len() { return None; }
 
-        let block_flags = map.layout[idx].flags;
-        let is_wall = (block_flags & 0xC000) == 0xC000;
-        let is_door = map.step_events.iter().any(|ev| ev.trig_x == nx as u8 && ev.trig_y == ny as u8);
+      let block_flags = map.layout[idx].flags;
+      let is_wall = (block_flags & 0xC000) == 0xC000;
+      let is_door = map.step_events.iter().any(|ev| ev.trig_x == nx as u8 && ev.trig_y == ny as u8);
 
-        if is_wall && !is_door { return None; }
-
-        // Проверка коллизии с NPC
-        let is_npc = map.entities.iter().any(|e| e.x as i32 == nx && e.y as i32 == ny && !e.is_hidden);
-        if is_npc { return None; }
-
-        if let Some((wx, wy)) = self.last_warp_tile {
-            if nx != wx || ny != wy {
-                self.last_warp_tile = None;
+      // ═══ NEW: стена + Warp = вход в пещеру / дверь с варпом ═══
+      // Если клетка непроходима, но у неё есть флаг Warp (0x1000),
+      // запускаем варп, не двигая игрока с места.
+      if is_wall && !is_door {
+          let is_warp = (block_flags & 0x1000) == 0x1000;
+            if is_warp {
+                for warp in &map.warps {
+                    if (warp.src_x == 255 || warp.src_x == nx as u8) 
+                    && (warp.src_y == 255 || warp.src_y == ny as u8) {
+                      self.warp_anim = Some(WarpAnim {
+                          dest_map: warp.dest_map,
+                          dest_x: warp.dest_x,
+                          dest_y: warp.dest_y,
+                          facing: warp.facing,
+                          progress: 0.0,
+                          warp_tile_x: nx,   // ← клетка варпа
+                          warp_tile_y: ny,   // ←
+                      });
+                        return Some(MoveResult::None);
+                    }
+                }
             }
-        }
+          return None;
+      }
 
-        self.tile_x = nx; self.tile_y = ny;
-        self.target_x = nx * TILE_SIZE_FIXED; self.target_y = ny * TILE_SIZE_FIXED;
-        self.travel_x = dx * TILE_SIZE_FIXED; self.travel_y = dy * TILE_SIZE_FIXED;
-        self.velocity_x = dx * SPEED; 
-        self.velocity_y = dy * SPEED;
+      // Проверка коллизии с NPC
+      let is_npc = map.entities.iter().any(|e| {
+          if e.is_hidden { return false; }
+          let target_tx = e.x as i32;
+          let target_ty = e.y as i32;
+          let pixel_tx = e.pixel_x / TILE_SIZE_FIXED;
+          let pixel_ty = e.pixel_y / TILE_SIZE_FIXED;
+          (target_tx == nx && target_ty == ny) || (pixel_tx == nx && pixel_ty == ny)
+      });
+      if is_npc { return None; }
 
-        self.on_stairs = (block_flags & 0xC000) == 0x4000 || (block_flags & 0xC000) == 0x8000;
+      if let Some((wx, wy)) = self.last_warp_tile {
+          if nx != wx || ny != wy {
+              self.last_warp_tile = None;
+          }
+      }
 
-        Some(MoveResult::None)
-    }
+      self.tile_x = nx; self.tile_y = ny;
+      self.target_x = nx * TILE_SIZE_FIXED; self.target_y = ny * TILE_SIZE_FIXED;
+      self.travel_x = dx * TILE_SIZE_FIXED; self.travel_y = dy * TILE_SIZE_FIXED;
+      self.velocity_x = dx * SPEED; 
+      self.velocity_y = dy * SPEED;
+
+      self.on_stairs = (block_flags & 0xC000) == 0x4000 || (block_flags & 0xC000) == 0x8000;
+
+      Some(MoveResult::None)
+  }
 
     pub fn interact(
         &mut self, 
@@ -244,8 +288,22 @@ impl PlayerState {
         crate::game::map::events::interact(self, map, flags, game_script)
     }
 
-    pub fn tick(&mut self, map: &mut MapData, events: &mut MapEventsState) {
-        if self.travel_x != 0 || self.travel_y != 0 {
+pub fn tick(&mut self, map: &mut MapData, events: &mut MapEventsState) {
+    // ═══ анимация входа в пещеру ═══
+    if let Some(anim) = &mut self.warp_anim {
+        anim.progress = (anim.progress + 0.07).min(1.0);
+        if anim.progress >= 1.0 && self.pending_warp.is_none() {
+            self.pending_warp = Some((anim.dest_map, anim.dest_x, anim.dest_y, anim.facing));
+        }
+        self.anim_counter = self.anim_counter.wrapping_add(1);
+        if self.anim_counter >= 20 {
+            self.anim_counter = 0;
+            self.mapsprite_frame = if self.mapsprite_frame == 0 { 1 } else { 0 };
+        }
+        return;
+    }
+
+    if self.travel_x != 0 || self.travel_y != 0 {
             self.pixel_x += self.velocity_x;
             self.pixel_y += self.velocity_y;
             
@@ -372,19 +430,14 @@ pub fn load_mapsprite(id: u8) -> PlayerSprites {
     PlayerSprites { down, up, side }
 }
 
-/// Draw the player sprite at its current position, offset by the camera scroll.
-/// The sprite is a 3x3 tile grid (24x24 px). The `side` sheet is drawn facing
-/// left and horizontally mirrored for right-facing frames. `palette` is the
-/// 4-bank sprite palette; index 0 is treated as transparent.
+
 pub fn draw_player(
     buf: &mut [u8], pitch: usize, sprites: &PlayerSprites,
     state: &PlayerState, scroll_x: i32, scroll_y: i32, palette: &[Color],
 ) {
-    // Undo the fixed-point scaling to get real screen pixels.
     let real_px = state.pixel_x / 16;
     let real_py = state.pixel_y / 16;
 
-    // `side` sheet faces left natively; mirror it for right-facing.
     let (sheet, h_flip) = match state.facing {
         Facing::Down  => (&sprites.down, false),
         Facing::Up    => (&sprites.up,   false),
@@ -399,15 +452,86 @@ pub fn draw_player(
     let frame_offset = frame_idx * FRAME_BYTES;
 
     let px_base = real_px - scroll_x;
-    
-    // Constant vertical anchor: the sprite sits 8 px above the tile origin so
-    // the character's feet align with the base of the tile. No jump/bob offset
-    // is applied — matches SF2's map-walk sprite alignment.
-    let py_base = real_py - scroll_y - 8; 
+    let py_base = real_py - scroll_y - 8;
 
+    if let Some(anim) = &state.warp_anim {
+        if anim.progress >= 0.95 { return; }
+        let scale = (1.0 - anim.progress).max(0.05);
+        let new_w = ((24.0 * scale) as i32).max(1);
+        let new_h = ((24.0 * scale) as i32).max(1);
+
+        // Текущая позиция ног (то, где игрок сейчас стоит на экране)
+        let feet_x_cur = real_px + 12 - scroll_x;
+        let feet_y_cur = real_py + 16 - scroll_y;
+
+        // Позиция центра клетки варпа на экране
+        let feet_x_end = (anim.warp_tile_x * 24 + 12) - scroll_x;
+        let feet_y_end = (anim.warp_tile_y * 24 + 12) - scroll_y;
+
+        // Интерполяция от текущей к варпу
+        let t = anim.progress;
+        let feet_x = feet_x_cur + ((feet_x_end - feet_x_cur) as f32 * t) as i32;
+        let feet_y = feet_y_cur + ((feet_y_end - feet_y_cur) as f32 * t) as i32;
+
+        let draw_x_start = feet_x - new_w / 2;
+        let draw_y_start = feet_y - new_h;
+
+        // 1. Рендерим полный 24×24 во временный буфер
+        let mut temp = vec![0u8; 24 * 24 * 4];  // RGBA
+        for ty in 0..3 {
+            for tx_iter in 0..3 {
+                let tx = if h_flip { 2 - tx_iter } else { tx_iter };
+                let tile_idx = frame_offset + (ty * 3 + tx) * TILE_BYTES;
+                if tile_idx + TILE_BYTES > sheet.len() { continue; }
+                let tile = &sheet[tile_idx..tile_idx + TILE_BYTES];
+
+                for row in 0..8 {
+                    for col in 0..8 {
+                        let src_col = if h_flip { 7 - col } else { col };
+                        let byte_idx = row * 4 + (src_col / 2);
+                        let byte = tile[byte_idx];
+                        let ci = if src_col % 2 == 0 { (byte >> 4) & 0x0F } else { byte & 0x0F } as usize;
+                        if ci == 0 || ci >= palette.len() { continue; }
+                        let c = palette[ci];
+
+                        let tx_px = (tx_iter * 8) as usize + col;
+                        let ty_px = (ty * 8) as usize + row;
+                        let t_off = ty_px * 24 * 4 + tx_px * 4;
+                        temp[t_off] = c.r;
+                        temp[t_off + 1] = c.g;
+                        temp[t_off + 2] = c.b;
+                        temp[t_off + 3] = 255;
+                    }
+                }
+            }
+        }
+
+        // 2. Nearest-neighbor масштабирование в экран
+        let fade = (1.0 - anim.progress * 0.6).max(0.4);  // лёгкое затемнение
+        for dy in 0..new_h {
+            for dx in 0..new_w {
+                let src_x = (dx as usize * 24 / new_w as usize).min(23);
+                let src_y = (dy as usize * 24 / new_h as usize).min(23);
+                let t_off = src_y * 24 * 4 + src_x * 4;
+                if temp[t_off + 3] == 0 { continue; }
+
+                let px = draw_x_start + dx;
+                let py = draw_y_start + dy;
+                if px >= 32 && px < 288 && py >= 0 && py < 224 {
+                    let off = py as usize * pitch + px as usize * 4;
+                    buf[off]     = (temp[t_off]     as f32 * fade) as u8;
+                    buf[off + 1] = (temp[t_off + 1] as f32 * fade) as u8;
+                    buf[off + 2] = (temp[t_off + 2] as f32 * fade) as u8;
+                    buf[off + 3] = 255;
+                }
+            }
+        }
+        return;  // анимация рисуется вместо обычного спрайта
+    }
+
+    // ═══ Обычная отрисовка (без изменений) ═══
     for ty in 0..3 {
         for tx_iter in 0..3 {
-            // Reverse the horizontal tile order when mirroring.
             let tx = if h_flip { 2 - tx_iter } else { tx_iter };
             let tile_idx = frame_offset + (ty * 3 + tx) * TILE_BYTES;
             if tile_idx + TILE_BYTES > sheet.len() { continue; }
@@ -416,7 +540,6 @@ pub fn draw_player(
             let draw_x = px_base + (tx_iter as i32 * 8);
             let draw_y = py_base + (ty as i32 * 8);
 
-            // 4bpp tile: 2 pixels per byte, high nibble = left pixel.
             for row in 0..8 {
                 for col in 0..8 {
                     let src_col = if h_flip { 7 - col } else { col };
@@ -428,8 +551,6 @@ pub fn draw_player(
 
                     let px = draw_x + col as i32;
                     let py = draw_y + row as i32;
-                    // Clip to the visible map viewport. The leftmost 32 px is
-                    // reserved for the HUD/side window, so drawing starts at x=32.
                     if px >= 32 && px < 288 && py >= 0 && py < 224 {
                         let off = py as usize * pitch + px as usize * 4;
                         buf[off] = c.r; buf[off+1] = c.g; buf[off+2] = c.b; buf[off+3] = 255;

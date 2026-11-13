@@ -154,17 +154,20 @@ pub fn tick_entities(
     layout: &[MapLayoutBlock], 
     player_x: i32,
     player_y: i32,
+    player_pixel_x: i32,
+    player_pixel_y: i32,
     frame_counter: u32
-) {
-    let mut occupied: HashSet<(i32, i32)> = HashSet::new();
-    occupied.insert((player_x, player_y));
-    for e in entities.iter() {
-        // Добавляем в "занятые" только тех, кто НЕ в скрипте и НЕ говорит
-        if !e.is_hidden && !e.is_talking && !e.is_scripting {
-            occupied.insert((e.x as i32, e.y as i32));
-        }
-    }
+  ) {
 
+  let mut occupied: HashSet<(i32, i32)> = HashSet::new();
+  occupied.insert((player_x, player_y));
+  occupied.insert((player_pixel_x / 384, player_pixel_y / 384));  // ← добавлено
+  for e in entities.iter() {
+      if !e.is_hidden && !e.is_talking && !e.is_scripting {
+          occupied.insert((e.x as i32, e.y as i32));
+          occupied.insert((e.pixel_x / 384, e.pixel_y / 384));  // ← добавлено
+      }
+  }
     for entity in entities.iter_mut() {
         if entity.is_hidden { continue; }
 
