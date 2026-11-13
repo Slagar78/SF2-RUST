@@ -47,8 +47,10 @@ impl Renderer {
         let texture_creator = canvas.texture_creator();
 
         let texture = texture_creator.create_texture_streaming(PixelFormat::RGBA32, 320, 224).unwrap();
-        let mut texture_xbrz = texture_creator.create_texture_streaming(PixelFormat::RGBA32, 768, 672).unwrap();
-        texture_xbrz.set_scale_mode(sdl3::render::ScaleMode::Nearest);
+        
+        // ═══ Текстура 512×448 (xBRZ 2x) — SDL растянет до 768×672 на GPU ═══
+        let mut texture_xbrz = texture_creator.create_texture_streaming(PixelFormat::RGBA32, 512, 448).unwrap();
+        texture_xbrz.set_scale_mode(sdl3::render::ScaleMode::Linear);
 
         let texture = unsafe { std::mem::transmute::<Texture, Texture<'static>>(texture) };
         let texture_xbrz = unsafe { std::mem::transmute::<Texture, Texture<'static>>(texture_xbrz) };
@@ -76,7 +78,7 @@ impl Renderer {
             let hash = hasher.finish();
 
             if !self.cache_valid || hash != self.last_hash {
-                // 1. Извлекаем игровое поле 256×224 из буфера 320×224
+                // 1. Извлекаем игровое поле 256×224
                 let mut content = vec![0u8; 256 * 224 * 4];
                 for y in 0..224 {
                     let src = y * 320 * 4 + 32 * 4;
@@ -84,27 +86,16 @@ impl Renderer {
                     content[dst..dst + 256 * 4].copy_from_slice(&self.texture.framebuffer[src..src + 256 * 4]);
                 }
 
-                // 2. xBRZ 2x: 256×224 → 512×448 (меньше сглаживания, чем 3x)
+                // 2. xBRZ 2x: 256×224 → 512×448 (родной режим)
                 let scaled_2x = xbrz::scale_rgba(&content, 256, 224, 2);
 
-                // 3. Nearest до 512×448 → 768×672 (коэффициент 1.5)
-                let mut final_scaled = vec![0u8; 768 * 672 * 4];
-                for y in 0..672usize {
-                    let src_y = (y as f32 / 1.5) as usize;
-                    for x in 0..768usize {
-                        let src_x = (x as f32 / 1.5) as usize;
-                        let src_idx = (src_y * 512 + src_x) * 4;
-                        let dst_idx = (y * 768 + x) * 4;
-                        final_scaled[dst_idx..dst_idx + 4]
-                            .copy_from_slice(&scaled_2x[src_idx..src_idx + 4]);
-                    }
-                }
-
-                self.texture_xbrz.update(None, &final_scaled, 768 * 4).unwrap();
+                // 3. Заливаем в текстуру 512×448
+                self.texture_xbrz.update(None, &scaled_2x, 512 * 4).unwrap();
                 self.last_hash = hash;
                 self.cache_valid = true;
             }
 
+            // 4. SDL растянет 512×448 → 768×672 через Linear на GPU (бесплатно)
             self.canvas.copy(&self.texture_xbrz, None, None).unwrap();
         } else {
             self.canvas.copy(&self.texture.texture, None, None).unwrap();
