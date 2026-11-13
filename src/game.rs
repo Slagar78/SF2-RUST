@@ -9,6 +9,8 @@ pub mod item_parser;
 pub mod transition;
 pub mod render_mode;
 pub mod flags;
+pub mod script;
+
 
 use crate::game::render_mode::RenderMode;
 use crate::game::screens::launcher::LauncherState;
@@ -60,8 +62,9 @@ pub fn run() {
         }
     }
 
-    let mut map_data = load_map_data(3);
     let mut events_state = MapEventsState::new();
+    
+    let mut map_data = load_map_data(3);
     
     let mut player_state = PlayerState::new(56, 3);
     let mut map_state = MapState::new(player_state.pixel_x / 16, player_state.pixel_y / 16, &map_data);
