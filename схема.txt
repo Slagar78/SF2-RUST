@@ -5,23 +5,29 @@ C:\my_project\SF2-RUST\
 ├── src\
 │   ├── sf2.rs                      <-- Entry point: declares engine/game modules and starts main
 │   │
-│   ├── engine.rs                   <-- Engine module root: connects engine submodules
+│   ├── engine.rs                   <-- Engine module root (font.rs законсервирован, пока не нужен)
 │   ├── engine\
 │   │   ├── input.rs                <-- Input handling (A, B, C, directional pad, Enter)
 │   │   ├── decompressor.rs         <-- STACK and Basic decompressors
 │   │   ├── base_tiles.rs           <-- VRAM emulation, basetiles.bin loading, VRAM map constants
 │   │   ├── time.rs                 <-- Timer and fixed-timestep game loop
-│   │   └── renderer.rs             <-- SDL3 wrapper (window, textures, pixel buffer, scaling/centering logic)
+│   │   ├── renderer.rs             <-- SDL3 wrapper (window, textures, pixel buffer, scaling/centering)
+│   │   └── font.rs                 <-- (Временно отключен) Загрузчик VWF шрифта для будущих нужд
 │   │
 │   ├── game.rs                     <-- Main game loop and game-state switching (handles rendering modes)
 │   ├── game\
-│   │   ├── state.rs                <-- GameState enum (Launcher, SegaLogo, Map, Menu, etc.)
+│   │   ├── state.rs                <-- GameState enum (Launcher, SegaLogo, Map, Dialogue, Menu, etc.)
 │   │   ├── render_mode.rs          <-- RenderMode enum (Original 320x224, Normal 768x672)
 │   │   ├── player.rs               <-- Bowie movement (grid, collisions, turn-in-place, ladders, warps)
-│   │   ├── flags.rs                <-- NEW: GameFlags (global story/event boolean states)
+│   │   ├── flags.rs                <-- GameFlags (global story/event boolean states)
 │   │   ├── ally_parser.rs          <-- Parser for .asm data (names, classes, stats, mapsprite)
 │   │   ├── item_parser.rs          <-- Parser for itemnames.asm and itemdefs.asm
 │   │   ├── transition.rs           <-- Screen fade logic for warps (fade out/in)
+│   │   │
+│   │   ├── script.rs               <-- Script system root module
+│   │   ├── script\
+│   │   │   ├── text_parser.rs      <-- Parser for gamescript.txt (читает ID строк и сам текст)
+│   │   │   └── dialog.rs           <-- Dialogue state machine (печать текста, создание окна)
 │   │   │
 │   │   ├── map.rs                  <-- Map module root: connects map submodules
 │   │   ├── map\
@@ -30,8 +36,8 @@ C:\my_project\SF2-RUST\
 │   │   │   ├── anim.rs             <-- Universal 32-tile animation (water, torches, etc.)
 │   │   │   ├── camera.rs           <-- Camera with dead zones, subpixel scrolling, can_open_menu()
 │   │   │   ├── draw.rs             <-- Renders two map layers (H32 clipping, anim tile replacement)
-│   │   │   ├── events.rs           <-- Event handling (warps, doors, roofs, items)
-│   │   │   └── entities.rs         <-- NEW: NPC parser (s1_entities.asm) and smooth movement AI
+│   │   │   ├── events.rs           <-- Event handling (warps, doors, roofs, items, NPC talk)
+│   │   │   └── entities.rs         <-- NPC parser (s1_entities.asm) and smooth movement AI
 │   │   │
 │   │   ├── menu.rs                 <-- Menu module root: connects menu submodules
 │   │   ├── menu\
@@ -57,6 +63,6 @@ C:\my_project\SF2-RUST\
 │       └── graphics\
 │           ├── ...
 │           └── mapsprites\
-│               ├── mapspritenames.txt <-- NEW: Parsed to get exact NPC sprite IDs
+│               ├── mapspritenames.txt <-- Parsed to get exact NPC sprite IDs
 │               ├── mapsprite000-0.bin
 │               └── ...

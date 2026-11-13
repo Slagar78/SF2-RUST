@@ -173,7 +173,12 @@ pub fn check_tile_events(_player: &mut PlayerState, map: &mut MapData, events: &
     MapEventResult::None
 }
 
-pub fn interact(player: &mut PlayerState, map: &mut MapData, flags: &mut crate::game::flags::GameFlags) {
+pub fn interact(
+    player: &mut PlayerState, 
+    map: &mut MapData, 
+    flags: &mut crate::game::flags::GameFlags,
+    game_script: &crate::game::script::text_parser::GameScript, // <-- Добавили парсер
+) -> Option<String> {
     let (dx, dy) = match player.facing {
         Facing::Up    => (0, -1),
         Facing::Down  => (0,  1),
@@ -183,9 +188,25 @@ pub fn interact(player: &mut PlayerState, map: &mut MapData, flags: &mut crate::
     let target_x = player.tile_x + dx;
     let target_y = player.tile_y + dy;
 
-    if target_x < 0 || target_x >= 64 || target_y < 0 || target_y >= 64 { return; }
+    if target_x < 0 || target_x >= 64 || target_y < 0 || target_y >= 64 { return None; }
     let target_idx = (target_y * 64 + target_x) as usize;
 
+    // 1. Проверяем NPC
+    for entity in &map.entities {
+        if entity.x as i32 == target_x && entity.y as i32 == target_y && !entity.is_hidden {
+            // ВМЕСТО ХАРДКОДА БЕРЕМ ТЕКСТ ИЗ ИГРЫ (ID 512 = 0x0200)
+            let mut text = game_script.get(0x0200);
+            
+            // Убираем лишние теги, которые пока не умеем обрабатывать
+            text = text.replace("{N}", "\n");
+            text = text.replace("{W1}", "").replace("{W2}", "");
+            text = text.replace("{LEADER}", "BOWIE");
+            
+            return Some(text);
+        }
+    }
+
+    // 2. Проверяем предметы (как было)
     let mut found_item = None;
     for (i, item) in map.items.iter().enumerate() {
         if item.x as i32 == target_x && item.y as i32 == target_y {
@@ -195,20 +216,14 @@ pub fn interact(player: &mut PlayerState, map: &mut MapData, flags: &mut crate::
     }
 
     if let Some(index) = found_item {
-        let item = map.items[index]; // Копируем данные
-        
-        // Если флаг еще не установлен (сундук не открыт)
+        let item = map.items[index];
         if !flags.get(item.flag) {
-            flags.set(item.flag); // Ставим флаг
-            map.items.remove(index); // Удаляем с карты
+            flags.set(item.flag); 
+            map.items.remove(index); 
             println!("🎁 ВЫ НАШЛИ ПРЕДМЕТ! ID: {}", item.item_id);
             map.layout[target_idx].flags = 0x0000; 
-        } else {
-            // Если флаг уже стоит, предмет уже забрали
-            // println!("Сундук пуст.");
         }
     }
-    else {
 
-    }
+    None
 }

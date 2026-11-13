@@ -105,6 +105,8 @@ pub fn run() {
     let mut menu_anim_delay: u16 = 0;
     let mut menu_choice: usize = 0;
     let mut last_input: u8 = 0;
+    let mut dialog_state = crate::game::script::dialog::DialogState::new();
+    let game_script = crate::game::script::text_parser::GameScript::new();
     
     let mut diamond_menu_slot: Option<usize> = None;
 
@@ -211,16 +213,27 @@ pub fn run() {
                 // ====== MAP (Игровая карта: ходьба, камера, NPC) ==============
                 // ==============================================================
                 GameState::Map => {
-                    // 1. Ловим нажатие A/C
-                    let confirm_pressed = (input_state.current_player_input & (INPUT_A | INPUT_C)) != 0;
-                    let confirm_was_pressed = (last_input & (INPUT_A | INPUT_C)) != 0;
+                    // 1. Ловим нажатие кнопок
+                    let a_pressed = (input_state.current_player_input & INPUT_A) != 0 && (last_input & INPUT_A) == 0;
+                    let d_pressed = (input_state.current_player_input & INPUT_C) != 0 && (last_input & INPUT_C) == 0;
 
-                    if confirm_pressed && !confirm_was_pressed && !menu_open && !pending_menu_open {
-                        pending_menu_open = true;
+                    // Кнопка A - СРАЗУ открывает меню (никогда не диалог)
+                    if a_pressed && !menu_open && !pending_menu_open {
+                        if !player_state.is_moving() && map_state.can_open_menu() {
+                            game_state = GameState::Menu;
+                            menu_open = true;
+                            menu_anim_timer = 20;
+                            menu_choice = 0;
+                            diamond_menu_slot = window_engine.create_window_with_layout(0x0C20, 18, 6, &layouts::LAYOUT_DIAMOND_MENU);
+                            if let Some(slot) = diamond_menu_slot {
+                                window_engine.move_window(slot, 0x0C15, 4);
+                            }
+                        }
                     }
 
-                    if (input_state.current_player_input & INPUT_B) != 0 {
-                        pending_menu_open = false;
+                    // Кнопка D - вызывает диалог (или меню, если нет NPC)
+                    if d_pressed && !menu_open && !pending_menu_open {
+                        pending_menu_open = true;
                     }
 
                     // 2. Движение игрока
@@ -301,25 +314,68 @@ pub fn run() {
                     map_state.update_view(target_x, target_y, &map_data);
                     map_state.tick();
 
-                    // 5. Открываем Diamond Menu
+                    // 5. Открываем Diamond Menu или Диалог
                     if pending_menu_open && !menu_open {
-                          if !player_state.is_moving() && map_state.can_open_menu() {
+                        if !player_state.is_moving() && map_state.can_open_menu() {
                             pending_menu_open = false; 
-                            player_state.interact(&mut map_data, &mut game_flags);
                             
-                            game_state = GameState::Menu;
-                            menu_open = true;
-                            menu_anim_timer = 20;
-                            menu_choice = 0;
-                            
-                            diamond_menu_slot = window_engine.create_window_with_layout(0x0C20, 18, 6, &layouts::LAYOUT_DIAMOND_MENU);
-                            if let Some(slot) = diamond_menu_slot {
-                                window_engine.move_window(slot, 0x0C15, 4);
+                            // Смотрим, какая кнопка сейчас зажата
+                            let is_d_pressed = (input_state.current_player_input & INPUT_C) != 0;
+
+                            // Если нажата D — пытаемся заговорить с NPC
+                            if is_d_pressed {
+                            if let Some(text) = player_state.interact(&mut map_data, &mut game_flags, &game_script) {
+                                dialog_state.open(text, &mut window_engine); // Передаем window_engine
+                                game_state = GameState::Dialogue;
+                            }
+                                else {
+                                    // Если D, но NPC нет — открываем меню
+                                    game_state = GameState::Menu;
+                                    menu_open = true;
+                                    menu_anim_timer = 20;
+                                    menu_choice = 0;
+                                    diamond_menu_slot = window_engine.create_window_with_layout(0x0C20, 18, 6, &layouts::LAYOUT_DIAMOND_MENU);
+                                    if let Some(slot) = diamond_menu_slot {
+                                        window_engine.move_window(slot, 0x0C15, 4);
+                                    }
+                                }
+                            } else {
+                                // Если нажата A (или другая кнопка) — СРАЗУ открываем меню (игнорируем NPC)
+                                game_state = GameState::Menu;
+                                menu_open = true;
+                                menu_anim_timer = 20;
+                                menu_choice = 0;
+                                diamond_menu_slot = window_engine.create_window_with_layout(0x0C20, 18, 6, &layouts::LAYOUT_DIAMOND_MENU);
+                                if let Some(slot) = diamond_menu_slot {
+                                    window_engine.move_window(slot, 0x0C15, 4);
+                                }
                             }
                         }
                     }
 
                     last_input = input_state.current_player_input;
+                    should_render = true;
+                }
+
+                // ==============================================================
+                // ====== DIALOGUE (Диалоговое окно) ============================
+                // ==============================================================
+                GameState::Dialogue => {
+                    dialog_state.tick();
+                    
+                    let current_input = input_state.current_player_input;
+                    
+                    if (current_input & (INPUT_C | INPUT_B)) != 0 && (last_input & (INPUT_C | INPUT_B)) == 0 {
+                        if dialog_state.visible_chars >= dialog_state.text.chars().count() {
+                            dialog_state.close(&mut window_engine); // Передаем window_engine
+                            game_state = GameState::Map;
+                            player_state.input_delayer = 10;
+                        } else {
+                            dialog_state.visible_chars = dialog_state.text.chars().count();
+                        }
+                    }
+                    
+                    last_input = current_input;
                     should_render = true;
                 }
 
@@ -691,7 +747,7 @@ pub fn run() {
         // ====== ОТРИСОВКА КАДРА (рисуем то, что видит игрок) ==========
         // ==============================================================
         if should_render {
-            if game_state == GameState::Map || game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus || game_state == GameState::MagicMenu {
+            if game_state == GameState::Map || game_state == GameState::Dialogue || game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus || game_state == GameState::MagicMenu {
                 renderer.texture.with_lock(None, |buffer, pitch| {
 
                     let p_x = player_state.pixel_x / 16;
@@ -716,7 +772,7 @@ pub fn run() {
                     map::draw::draw_map(buffer, pitch, &map_data, &map_state, 1, p_x, p_y);
                     
                     // 5. Окна меню
-                    if game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus || game_state == GameState::MagicMenu {
+                    if game_state == GameState::Menu || game_state == GameState::MemberMenu || game_state == GameState::MemberStatus || game_state == GameState::MagicMenu || game_state == GameState::Dialogue {
                         window_engine.draw_windows(buffer, pitch, &vram, &sprite_palette, menu_anim_timer, menu_choice, 32);
                     }
 
@@ -740,6 +796,12 @@ pub fn run() {
                         member_status.draw_sprite_overlay(buffer, pitch, &vram, &window_engine, &sprite_palette);
                     }
 
+                    // 9. Обновляем текст диалога
+                    if game_state == GameState::Dialogue {
+                        dialog_state.update_text(&mut window_engine);
+                    }
+
+
                     transition.draw(buffer, pitch);
                 }).unwrap();
             }
@@ -748,6 +810,7 @@ pub fn run() {
                 GameState::TitleScreen | 
                 GameState::WitchScreen |
                 GameState::Map | 
+                GameState::Dialogue | 
                 GameState::Menu | 
                 GameState::MemberMenu | 
                 GameState::MemberStatus | 
@@ -756,6 +819,7 @@ pub fn run() {
 
             let crop_sides = matches!(game_state, 
                 GameState::Map | 
+                GameState::Dialogue | 
                 GameState::Menu | 
                 GameState::MemberMenu | 
                 GameState::MemberStatus | 

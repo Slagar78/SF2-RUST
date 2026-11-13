@@ -235,8 +235,13 @@ impl PlayerState {
         Some(MoveResult::None)
     }
 
-    pub fn interact(&mut self, map: &mut MapData, flags: &mut crate::game::flags::GameFlags) {
-        crate::game::map::events::interact(self, map, flags);
+    pub fn interact(
+        &mut self, 
+        map: &mut MapData, 
+        flags: &mut crate::game::flags::GameFlags,
+        game_script: &crate::game::script::text_parser::GameScript,
+    ) -> Option<String> {
+        crate::game::map::events::interact(self, map, flags, game_script)
     }
 
     pub fn tick(&mut self, map: &mut MapData, events: &mut MapEventsState) {
