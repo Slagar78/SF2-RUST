@@ -32,6 +32,8 @@ pub struct Renderer {
     pub texture: RendererTexture,
     pub texture_xbrz: Texture<'static>,
     pub mode: RenderMode,
+    last_hash: u64,
+    cache_valid: bool,
 }
 
 impl Renderer {
@@ -48,7 +50,7 @@ impl Renderer {
         
         let texture = texture_creator.create_texture_streaming(PixelFormat::RGBA32, 320, 224).unwrap();
         let mut texture_xbrz = texture_creator.create_texture_streaming(PixelFormat::RGBA32, 640, 448).unwrap();
-        texture_xbrz.set_scale_mode(sdl3::render::ScaleMode::Linear);
+        texture_xbrz.set_scale_mode(sdl3::render::ScaleMode::Nearest);
 
         let texture = unsafe { std::mem::transmute::<Texture, Texture<'static>>(texture) };
         let texture_xbrz = unsafe { std::mem::transmute::<Texture, Texture<'static>>(texture_xbrz) };
@@ -58,7 +60,11 @@ impl Renderer {
             framebuffer: vec![0u8; 320 * 224 * 4],
         };
 
-        Self { canvas, texture, texture_xbrz, mode }
+        Self {
+            canvas, texture, texture_xbrz, mode,
+            last_hash: 0,
+            cache_valid: false,
+        }
     }
 
     pub fn present(&mut self, fill_screen: bool, crop_sides: bool) {
@@ -66,11 +72,17 @@ impl Renderer {
         self.canvas.clear();
 
         if self.mode == RenderMode::Normal {
-            // Берем готовый кадр из RAM и увеличиваем
-            let scaled = xbrz::scale_rgba(&self.texture.framebuffer, 320, 224, 2);
-            
-            // Заливаем результат в текстуру экрана
-            self.texture_xbrz.update(None, &scaled, 640 * 4).unwrap();
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            hasher.write(&self.texture.framebuffer);
+            let hash = hasher.finish();
+
+            if !self.cache_valid || hash != self.last_hash {
+                let scaled = xbrz::scale_rgba(&self.texture.framebuffer, 320, 224, 2);
+                self.texture_xbrz.update(None, &scaled, 640 * 4).unwrap();
+                self.last_hash = hash;
+                self.cache_valid = true;
+            }
 
             if !fill_screen {
                 let dst = sdl3::render::FRect::new(64.0, 112.0, 640.0, 448.0);
@@ -82,7 +94,6 @@ impl Renderer {
                 self.canvas.copy(&self.texture_xbrz, None, None).unwrap();
             }
         } else {
-            // Original (как было)
             self.canvas.copy(&self.texture.texture, None, None).unwrap();
         }
 
